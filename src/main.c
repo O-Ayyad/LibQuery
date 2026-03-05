@@ -15,7 +15,6 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <Python.h>
 
 #include "parser_funcs.h"
 
@@ -237,23 +236,32 @@ void handle_install(char* library, char* book){
         fprintf(stderr,
             "Library %s is not supported or does not exist.", library
         );
-        return 0;
+        return;
+    }
+    if(!book){
+        book = "download_entire_library";
+    }
+    char command[512];
+
+    #ifdef _WIN32
+    snprintf(command, sizeof(command), "cmd /c py install.py %s %s", library, book);
+    #else
+    snprintf(command, sizeof(command), "python3 install.py %s %s", library, book);
+    #endif
+
+    FILE *python = popen(command, "r");
+    if (!python) {
+        fprintf(stderr, "Error: could not run install script.\n");
+        return;
     }
 
-    switch(selected_library){
-        case(LIBRARY_BIBLE):{
-
-        }
-        case(LIBRARY_QURAN):{
-            
-        }
-        case(LIBRARY_SHAKESPEARE):{
-            
-        }
-        case(LIBRARY_POE):{
-            
-        }
+    char line[256];
+    while (fgets(line, sizeof(line), python)) {
+        printf("%s", line);
     }
+
+    pclose(python);
+    
 }
 int main(int argc, char *argv[])
 {   
@@ -261,23 +269,21 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Too many arguments.\n");
         return 1;
     }
-    if(argc <= 1 || argv[2] == "help"){ //Help
+    if(argc <= 1 || strcmpci(argv[1], "help") == 0){ //Help
         print_help();
         return 1;
     }
-    if(argv[2] == "install"){ //Install book
+    if(strcmpci(argv[1], "install") == 0){ //Install book
         if(argc == 3){ //Install entire library
-            handle_install(argv[3], NULL);
-        }else{ //Install only the book
-            handle_install(argv[3], argv[4]);
+            handle_install(argv[2], NULL);
+        }else{ //Install only the bookS
+            handle_install(argv[2], argv[3]);
         }
+        return 0;
     }
 
     //TODO: check if it is quran since "libquery quran 12:12" is valid
-    if (argc < 3) {
 
-        return 1;
-    }
 
     char library_path[MAX_PATH];
     char book_path[MAX_PATH];
