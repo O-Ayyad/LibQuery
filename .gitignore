@@ -22,3 +22,5 @@ logs/
 config/*.key
 config/*.pem
 config/*.env
+
+*.exe

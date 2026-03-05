@@ -11,6 +11,12 @@
 
 #define NO_VERSE -1
 
+typedef enum supported_libraries{
+    LIBRARY_BIBLE,
+    LIBRARY_QURAN,
+    LIBRARY_SHAKESPEARE,
+    LIBRARY_POE,
+};
 typedef struct { //Start and end position of query
     int chapter;
     int verse;

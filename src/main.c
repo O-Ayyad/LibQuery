@@ -15,11 +15,24 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <Python.h>
+
 #include "parser_funcs.h"
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <strings.h>
 #endif
+
+static int strcmpci(const char *a, const char *b)
+{
+#ifdef _WIN32
+    return _stricmp(a, b);
+#else
+    return strcasecmp(a, b);
+#endif
+}
 
 static bool find_library(const char *name, char *result, size_t result_size)
 {
@@ -191,24 +204,78 @@ void query(FILE *csv, bool use_range, Range range)
         }
     }
 }
+void print_help(){
+    fprintf(stderr,
+        "Usage:\n"
+        "  libquery <library> <book> [ref]\n\n"
+        "Examples:\n"
+        "  libquery bible Genesis 1\n"
+        "  libquery bible Exodus 2-3\n"
+        "  libquery bible John 3:16\n"
+        "  libquery bible Romans 1:19-1:21\n"
+    );
+}
+enum supported_libraries parse_library_name(char* library){
+    if(strcmpci(library, "bible") == 0){
+        return LIBRARY_BIBLE;
+    }
+    if(strcmpci(library, "quran") == 0){
+        return LIBRARY_QURAN;
+    }
+    if(strcmpci(library, "shakespeare") == 0){
+        return LIBRARY_SHAKESPEARE;
+    }
+    if(strcmpci(library, "poe") == 0){
+        return LIBRARY_POE;
+    }
+    return NO_LIBRARY;
+}
+void handle_install(char* library, char* book){
+    enum supported_libraries selected_library = parse_library_name(library);
 
+    if(selected_library == NO_LIBRARY){
+        fprintf(stderr,
+            "Library %s is not supported or does not exist.", library
+        );
+        return 0;
+    }
+
+    switch(selected_library){
+        case(LIBRARY_BIBLE):{
+
+        }
+        case(LIBRARY_QURAN):{
+            
+        }
+        case(LIBRARY_SHAKESPEARE):{
+            
+        }
+        case(LIBRARY_POE):{
+            
+        }
+    }
+}
 int main(int argc, char *argv[])
-{
-    if (argc > 4) {
+{   
+    if (argc > 4) { //To many args
         fprintf(stderr, "Too many arguments.\n");
         return 1;
     }
+    if(argc <= 1 || argv[2] == "help"){ //Help
+        print_help();
+        return 1;
+    }
+    if(argv[2] == "install"){ //Install book
+        if(argc == 3){ //Install entire library
+            handle_install(argv[3], NULL);
+        }else{ //Install only the book
+            handle_install(argv[3], argv[4]);
+        }
+    }
+
     //TODO: check if it is quran since "libquery quran 12:12" is valid
     if (argc < 3) {
-        fprintf(stderr,
-            "Usage:\n"
-            "  libquery <library> <book> [ref]\n\n"
-            "Examples:\n"
-            "  libquery bible Genesis 1\n"
-            "  libquery bible Exodus 2-3\n"
-            "  libquery bible John 3:16\n"
-            "  libquery bible Romans 1:19-1:21\n"
-        );
+
         return 1;
     }
 
