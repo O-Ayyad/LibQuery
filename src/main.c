@@ -229,7 +229,7 @@ enum supported_libraries parse_library_name(char* library){
     }
     return NO_LIBRARY;
 }
-void handle_install(char* library, char* book){
+void handle_download(char* library, char* book){
     enum supported_libraries selected_library = parse_library_name(library);
 
     if(selected_library == NO_LIBRARY){
@@ -244,14 +244,14 @@ void handle_install(char* library, char* book){
     char command[512];
 
     #ifdef _WIN32
-    snprintf(command, sizeof(command), "cmd /c py install.py %s %s", library, book);
+    snprintf(command, sizeof(command), "cmd /c py download_libs.py %s %s", library, book);
     #else
-    snprintf(command, sizeof(command), "python3 install.py %s %s", library, book);
+    snprintf(command, sizeof(command), "python3 download_libs.py %s %s", library, book);
     #endif
 
     FILE *python = popen(command, "r");
     if (!python) {
-        fprintf(stderr, "Error: could not run install script.\n");
+        fprintf(stderr, "Error: could not run download script.\n");
         return;
     }
 
@@ -273,30 +273,40 @@ int main(int argc, char *argv[])
         print_help();
         return 1;
     }
-    if(strcmpci(argv[1], "install") == 0){ //Install book
-        if(argc == 3){ //Install entire library
-            handle_install(argv[2], NULL);
-        }else{ //Install only the bookS
-            handle_install(argv[2], argv[3]);
+    if(strcmpci(argv[1], "download") == 0){ //download book
+        if(argc == 3){ //download entire library
+            handle_download(argv[2], NULL);
+        }else{ //download only the bookS
+            handle_download(argv[2], argv[3]);
         }
-        return 0;
+        return 1;
     }
-
-    //TODO: check if it is quran since "libquery quran 12:12" is valid
-
+    char* library;
+    char* book; 
+    char* verse;
+    
+    if(strcmpci(argv[1], "quran") == 0){
+        library = "quran";
+        book = "quran";
+        verse = argv[2];
+    }else{
+        library = argv[1];
+        book = argv[2];
+        verse = argv[3];
+    }
 
     char library_path[MAX_PATH];
     char book_path[MAX_PATH];
 
     //find the library folder
-    if (!find_library(argv[1], library_path, sizeof(library_path))) {
-        fprintf(stderr, "Error: library directory '%s' not found.\n", argv[1]);
+    if (!find_library(library, library_path, sizeof(library_path))) {
+        fprintf(stderr, "Error: library directory '%s' not found.\n", library);
         return 1;
     }
 
     //find the book csv inside it
-    if (!find_book(library_path, argv[2], book_path, sizeof(book_path))) {
-        fprintf(stderr, "Error: book '%s' not found in '%s'.\n", argv[2], library_path);
+    if (!find_book(library_path, book, book_path, sizeof(book_path))) {
+        fprintf(stderr, "Error: book '%s' not found in '%s'.\n", book, library_path);
         return 1;
     }
 
@@ -313,8 +323,8 @@ int main(int argc, char *argv[])
     memset(&range, 0, sizeof(range));
 
     if (argc >= 4) {
-        if (!parse_range(argv[3], &range)) {
-            fprintf(stderr, "Error: cannot parse reference '%s'.\n", argv[3]);
+        if (!parse_range(verse, &range)) {
+            fprintf(stderr, "Error: cannot parse reference '%s'.\n", verse);
             fclose(file);
             return 1;
         }

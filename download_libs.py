@@ -1,3 +1,4 @@
+
 import sys
 import json
 import time
@@ -79,6 +80,7 @@ def book_to_num(_book) -> int:
     return BOOK_NUMS.get(_book.lower())
 
 def download_bible(_entireLibrary, _book):
+    print("Downloading Bible")
     booknum = 0
     bible_url = ""
 
@@ -100,6 +102,7 @@ def download_bible(_entireLibrary, _book):
     #TODO: Parse to csv
 
 def download_quran(): #merge arabic and english into csv
+    print("Downloading Quran")
     quran_url = "https://api.alquran.cloud/v1/quran/quran-uthmani"
     translated_url = "https://api.alquran.cloud/v1/quran/en.asad"
 
