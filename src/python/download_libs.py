@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import requests
+import os
 
 def book_to_num(_book) -> int:
     BOOK_NUMS = {
@@ -79,7 +80,17 @@ def book_to_num(_book) -> int:
     
     return BOOK_NUMS.get(_book.lower())
 
-def download_bible(_entireLibrary, _book):
+def save_to_dir(file_name, response):
+    save_dir = os.path.join(base_path, "data", file_name)
+    os.makedirs(save_dir, exist_ok=True)
+
+    save_path = os.path.join(save_dir, f"{book.lower()}.json")
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(response.json(), f, indent=2)
+
+    print(f"Saved to {save_path}")
+
+def download_bible(_entireLibrary):
     print("Downloading Bible")
     booknum = 0
     bible_url = ""
@@ -87,7 +98,7 @@ def download_bible(_entireLibrary, _book):
     if _entireLibrary:
         bible_url = f"https://api.getbible.net/v2/kjv.json"
     else:
-        booknum = book_to_num(_book) # booknum is 1 for genesis, 2 for exodus to 66
+        booknum = book_to_num(book) # booknum is 1 for genesis, 2 for exodus to 66
         if booknum == -1:
             return
         
@@ -96,9 +107,7 @@ def download_bible(_entireLibrary, _book):
     response = requests.get(bible_url)
     response.raise_for_status()
     
-    with open("bible.json", "w", encoding="utf-8") as f:
-        json.dump(response.json(), f, indent=2)
-    print("Saved to bible.json")
+    save_to_dir("bible",response)
     #TODO: Parse to csv
 
 def download_quran(): #merge arabic and english into csv
@@ -108,26 +117,23 @@ def download_quran(): #merge arabic and english into csv
 
     response = requests.get(quran_url)
     response.raise_for_status()
-    
-    with open("quran_arabic.json", "w", encoding="utf-8") as f:
-        json.dump(response.json(), f, indent=2)
-    print("Saved to quran_arabic.json")
+    save_to_dir("quran_arabic",response)
 
-    time.sleep(1000)
+    time.sleep(1)
+
     response = requests.get(translated_url)
     response.raise_for_status()
-    
-    with open("quran_english.json", "w", encoding="utf-8") as f:
-        json.dump(response.json(), f, indent=2)
-    print("Saved to quran_english.json")
+    save_to_dir("quran_english",response)
 
-library = sys.argv[1] #library  
-book    = sys.argv[2] #book
-entireLibrary = (book == "download_entire_library")
+library = sys.argv[1]
+book = sys.argv[2]
+base_path =sys.argv[3] 
+
+entire_library = (book == "download_entire_library")
 
 match library:
     case "bible":
-        download_bible(entireLibrary, book)
+        download_bible(entire_library)
         pass
     case "quran":
         download_quran()

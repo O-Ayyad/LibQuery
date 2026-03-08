@@ -35,10 +35,6 @@ static int strcmpci(const char *a, const char *b)
 
 static bool find_library(const char *name, char *result, size_t result_size)
 {
-    char debug_cwd[MAX_PATH];
-    getcwd(debug_cwd, sizeof(debug_cwd));
-    fprintf(stderr, "DEBUG cwd: %s\n", debug_cwd);
-
     char searches[4][MAX_PATH * 2];
     int count = 0;
 
@@ -203,17 +199,6 @@ void query(FILE *csv, bool use_range, Range range)
         }
     }
 }
-void print_help(){
-    fprintf(stderr,
-        "Usage:\n"
-        "  libquery <library> <book> [ref]\n\n"
-        "Examples:\n"
-        "  libquery bible Genesis 1\n"
-        "  libquery bible Exodus 2-3\n"
-        "  libquery bible John 3:16\n"
-        "  libquery bible Romans 1:19-1:21\n"
-    );
-}
 enum supported_libraries parse_library_name(char* library){
     if(strcmpci(library, "bible") == 0){
         return LIBRARY_BIBLE;
@@ -238,17 +223,33 @@ void handle_download(char* library, char* book){
         );
         return;
     }
+
     if(!book){
         book = "download_entire_library";
     }
+    
+    char exe_path[MAX_PATH];
     char command[512];
 
-    #ifdef _WIN32
-    snprintf(command, sizeof(command), "cmd /c py download_libs.py %s %s", library, book);
-    #else
-    snprintf(command, sizeof(command), "python3 download_libs.py %s %s", library, book);
-    #endif
+    GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
+    char* slash = strrchr(exe_path, '\\');
+    if (slash) {
+        *slash = '\0';
+    }
 
+    #ifdef _WIN32
+    snprintf(command, sizeof(command), "cmd /c py \"%s\\src\\python\\download_libs.py\" %s %s \"%s\"",  
+    exe_path, 
+    library ? library : "", 
+    book ? book : "",
+    exe_path);
+    #else
+    snprintf(command, sizeof(command), "python3 \"%s/src/python/download_libs.py\" %s %s \"%s\"", 
+    exe_path, 
+    library ? library : "", 
+    book ? book : "",
+    exe_path);
+    #endif
     FILE *python = popen(command, "r");
     if (!python) {
         fprintf(stderr, "Error: could not run download script.\n");
@@ -263,36 +264,88 @@ void handle_download(char* library, char* book){
     pclose(python);
     
 }
+
+typedef struct{
+    char* library;
+    char* book;
+    char* ref;
+    int* flags; // bool arry for each possible flags
+    int download;
+} arguments_and_flags;
+
+arguments_and_flags format_args(int argc, char **argv)
+{
+    arguments_and_flags af = {0};
+    af.download = (strcmpci(argv[1],"download") == 0);
+
+    int no_lib = (argc >= 2 && strcmpci(argv[1], "quran") == 0);
+        if (af.download) {
+        /* libquery download bible genesis */
+            af.library = (argc >= 3) ? argv[2] : NULL;
+            af.book = (argc >= 4) ? argv[3] : NULL;
+            af.ref = NULL;
+        return af;
+    }
+    if (no_lib) {
+        af.library = "quran";
+        af.book = "quran";
+        af.ref = (argc >= 3) ? argv[2] : NULL;
+    } else {
+        af.library = (argc >= 2) ? argv[1] : NULL;
+        af.book = (argc >= 3) ? argv[2] : NULL;
+        af.ref = (argc >= 4) ? argv[3] : NULL;
+    }
+
+    af.flags = NULL;
+    return af;
+}
+void print_help(){
+    fprintf(stdout,
+        "Usage:\n"
+        "  libquery <library> <book> [ref] [flags]\n\n"
+        "  or for books without a library:\n\n"
+        "  libquery <book> [ref] [flags]\n\n"
+        "Examples:\n"
+        "  libquery bible Genesis 1          (Prints Genesis 1)\n"
+        "  libquery bible Exodus 2-4         (Prints Exodus 2,3, and 4)\n"
+        "  libquery bible john 3:16          (Prints John 3:16)\n"
+        "  libquery quran 2:1-2:10           (Prints the first 10 verses of the second chapter)"   
+    );
+}
+void print_welcome(){
+        fprintf(stdout,
+        "Temporary welcome message and simple commands"
+    );
+}
 int main(int argc, char *argv[])
 {   
-    if (argc > 4) { //To many args
-        fprintf(stderr, "Too many arguments.\n");
-        return 1;
+    if(argc == 1){
+        print_welcome();
+        return 0;
     }
-    if(argc <= 1 || strcmpci(argv[1], "help") == 0){ //Help
+    if(argc == 2 && ((strcmpci(argv[1],"help") == 0) || strcmpci(argv[1],"h") == 0)){
         print_help();
+        return 0;
+    }
+
+    arguments_and_flags all_args = format_args(argc, argv);
+
+    if (all_args.download) {
+        handle_download(all_args.library, all_args.book);
+        return 0;
+    }
+
+    char* library = all_args.library;
+    char* book = all_args.book;
+    char* ref = all_args.ref;
+
+    if (!library) {
+        fprintf(stderr, "Error: no library specified.\n");
         return 1;
     }
-    if(strcmpci(argv[1], "download") == 0){ //download book
-        if(argc == 3){ //download entire library
-            handle_download(argv[2], NULL);
-        }else{ //download only the bookS
-            handle_download(argv[2], argv[3]);
-        }
+    if (!book) {
+        fprintf(stderr, "Error: no book specified.\n");
         return 1;
-    }
-    char* library;
-    char* book; 
-    char* verse;
-    
-    if(strcmpci(argv[1], "quran") == 0){
-        library = "quran";
-        book = "quran";
-        verse = argv[2];
-    }else{
-        library = argv[1];
-        book = argv[2];
-        verse = argv[3];
     }
 
     char library_path[MAX_PATH];
@@ -323,8 +376,8 @@ int main(int argc, char *argv[])
     memset(&range, 0, sizeof(range));
 
     if (argc >= 4) {
-        if (!parse_range(verse, &range)) {
-            fprintf(stderr, "Error: cannot parse reference '%s'.\n", verse);
+        if (!parse_range(ref, &range)) {
+            fprintf(stderr, "Error: cannot parse reference '%s'.\n", ref);
             fclose(file);
             return 1;
         }
