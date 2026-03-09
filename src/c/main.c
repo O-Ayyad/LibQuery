@@ -163,7 +163,7 @@ void query(FILE *csv, bool use_range, Range range)
         const char *cursor = line;
         cursor = read_csv_field(cursor, chapter_field, (int)sizeof(chapter_field));
         cursor = read_csv_field(cursor, verse_field, (int)sizeof(verse_field));
-                 read_csv_field(cursor, text_field, (int)sizeof(text_field));
+        cursor = read_csv_field(cursor, text_field, (int)sizeof(text_field));
         // skip header
         if (first_row) {
             first_row = false;
