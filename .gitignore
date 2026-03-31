@@ -24,3 +24,6 @@ config/*.pem
 config/*.env
 
 *.exe
+__pycache__/
+*.py[cod]
+*$py.class

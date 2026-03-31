@@ -22,13 +22,13 @@ bool in_range(int chapter, int verse, Range range)
     //are we at or past the start?
     bool on_later_chapter = chapter > range.start.chapter;
     bool on_start_chapter = (chapter == range.start.chapter) && (verse >= start_verse);
-    bool after_start      = on_later_chapter || on_start_chapter;
+    bool after_start = on_later_chapter || on_start_chapter;
 
-    /* are we at or before the end? */
+    // are we at or before the end?
     bool end_is_whole_chapter = (range.end.verse == NO_VERSE);
-    bool before_end_chapter   = chapter < range.end.chapter;
-    bool on_end_chapter       = (chapter == range.end.chapter) && (verse <= range.end.verse);
-    bool before_end           = end_is_whole_chapter ? chapter <= range.end.chapter
+    bool before_end_chapter = chapter < range.end.chapter;
+    bool on_end_chapter = (chapter == range.end.chapter) && (verse <= range.end.verse);
+    bool before_end = end_is_whole_chapter ? chapter <= range.end.chapter
                                                      : before_end_chapter || on_end_chapter;
 
     return after_start && before_end;
@@ -94,14 +94,14 @@ bool parse_range(const char *input, Range *out)
         if (start_len <= 0 || start_len >= 32) return false;
         if (end_len   <= 0 || end_len   >= 32) return false;
 
-        memcpy(start_str, input,    (size_t)start_len);
+        memcpy(start_str, input, (size_t)start_len);
         start_str[start_len] = '\0';
 
         memcpy(end_str, dash + 1, (size_t)end_len);
         end_str[end_len] = '\0';
 
         if (!parse_position(start_str, &out->start) ||
-            !parse_position(end_str,   &out->end)) {
+            !parse_position(end_str, &out->end)) {
             return false;
         }
 

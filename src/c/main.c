@@ -1,4 +1,6 @@
 /*
+ *   libquery entry point
+ *
  *   libquery <library> <book>             Print entire book
  *   libquery <library> <book> <N>         Print chapter N
  *   libquery <library> <book> <N:V>       Print single verse
@@ -6,6 +8,9 @@
  *   libquery <library> <book> <N:V-M>     Print N:V through end of chapter M
  *   libquery <library> <book> <N-M:V>     Print start of chapter N through M:V
  *   libquery <library> <book> <N:V-M:W>   Print N:V through M:W
+ *   libquery download <library> [book]    Download supported libraries
+ *   libquery host                         Hosts the server on this machine
+ *   libquery ping                         Check server is alive
  */
 
 #include <stdio.h>
@@ -18,373 +23,295 @@
 
 #include "parser_funcs.h"
 
+#define SERVER_PORT 9237
+
 #ifdef _WIN32
-#include <windows.h>
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  #define CLOSE_SOCKET(s) closesocket(s)
+  typedef SOCKET sock_t;
 #else
-#include <strings.h>
+  #include <sys/socket.h>
+  #include <arpa/inet.h>
+  #include <unistd.h>
+  #define CLOSE_SOCKET(s) close(s)
+  typedef int sock_t;
 #endif
 
-static int strcmpci(const char *a, const char *b)
+
+
+// Socket helpers
+static int net_init(void)
 {
 #ifdef _WIN32
-    return _stricmp(a, b);
+    WSADATA wsa;
+    return WSAStartup(MAKEWORD(2, 2), &wsa);
 #else
-    return strcasecmp(a, b);
+    return 0;
 #endif
 }
 
-static bool find_library(const char *name, char *result, size_t result_size)
+static void net_cleanup(void)
 {
-    char searches[4][MAX_PATH * 2];
-    int count = 0;
+#ifdef _WIN32
+    WSACleanup();
+#endif
+}
 
-    #ifdef _WIN32
-    char exe_dir[MAX_PATH];
-    if (GetModuleFileNameA(NULL, exe_dir, sizeof(exe_dir))) {
-        char *last_slash = strrchr(exe_dir, '\\');
-        if (last_slash) *last_slash = '\0';
-        snprintf(searches[count++], MAX_PATH * 2, "%s\\%s", exe_dir, name);
-        snprintf(searches[count++], MAX_PATH * 2, "%s\\data\\%s", exe_dir, name);
+
+// Send the payload to the server and prints the return
+// Returns 0 on success, 1 on failure.
+static int send_and_print(const char *payload)
+{
+    const char *host = getenv("LIBQUERY_HOST");
+    if (!host) host = "127.0.0.1";
+    sock_t s;
+    struct sockaddr_in addr;
+    int n;
+
+    s =socket(AF_INET, SOCK_STREAM, 0);
+    if ((int)s < 0) {
+        fprintf(stderr, "Error: could not create socket.\n");
+        return 1;
     }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(SERVER_PORT);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
+        fprintf(stderr, "Error: invalid server address.\n");
+        CLOSE_SOCKET(s);
+        return 1;
+    }
+
+    if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        fprintf(stderr,
+            "Error: cannot connect to LibQuery server at %s:%d.\n"
+            "       Is the server running?  Start it with:\n"
+            "       libquery host\n",
+            host, SERVER_PORT);
+        CLOSE_SOCKET(s);
+        return 1;
+    }
+
+    send(s, payload, (int)strlen(payload), 0);
+
+
+    #ifndef _WIN32
+    shutdown(s, SHUT_WR);
     #endif
 
-    //find working dir
-    char cwd[MAX_PATH];
-    if (getcwd(cwd, sizeof(cwd))) {
-        #ifdef _WIN32
-        snprintf(searches[count++], MAX_PATH * 2, "%s\\%s",      cwd, name);
-        snprintf(searches[count++], MAX_PATH * 2, "%s\\data\\%s", cwd, name);
-        #else
-        snprintf(searches[count++], MAX_PATH * 2, "%s/%s",      cwd, name);
-        snprintf(searches[count++], MAX_PATH * 2, "%s/data/%s", cwd, name);
-        #endif
+    char chunk[4096];
+    while ((n = recv(s, chunk, sizeof(chunk) - 1, 0)) > 0) {
+        chunk[n] = '\0';
+        fputs(chunk, stdout);
     }
+    putchar('\n');
 
-    //try each candidate in order
-    for (int i = 0; i < count; i++) {
-        if (is_directory(searches[i])) {
-            memcpy(result, searches[i], result_size - 1);
-            result[result_size - 1] = '\0';
-            return true;
-        }
-    }
-
-    // last resort treat name as a direct path
-    if (is_directory(name)) {
-        strncpy(result, name, result_size - 1);
-        result[result_size - 1] = '\0';
-        return true;
-    }
-
-    return false;
-}
-bool find_book(const char *library_path, const char *book_name, char *result, size_t result_size)
-{
-    char lowercase[256];
-    char titlecase[256];
-    char candidate[MAX_PATH * 2];
-
-    //lowercase version of the book name
-    strncpy(lowercase, book_name, sizeof(lowercase) - 1);
-    lowercase[sizeof(lowercase) - 1] = '\0';
-    for (int i = 0; lowercase[i]; i++) {
-        lowercase[i] = (char)tolower((unsigned char)lowercase[i]);
-    }
-
-    // build a title case genesis to Genesis
-    strncpy(titlecase, lowercase, sizeof(titlecase) - 1);
-    titlecase[sizeof(titlecase) - 1] = '\0';
-    if (titlecase[0]) {
-        titlecase[0] = (char)toupper((unsigned char)titlecase[0]);
-    }
-
-    //try each name variant
-    const char *name_variants[] = { book_name, lowercase, titlecase };
-    for (int i = 0; i < 3; i++) {
-        snprintf(candidate, sizeof(candidate), "%s/%s.csv", library_path, name_variants[i]);
-        struct stat info;
-        if (stat(candidate, &info) == 0) {
-            memcpy(result, candidate, result_size - 1);
-            result[result_size - 1] = '\0';
-            return true;
-        }
-    }
-
-    return false;
+    CLOSE_SOCKET(s);
+    return 0;
 }
 
-const char *read_csv_field(const char *cursor, char *out, int max)
-{
-    int i = 0;
-    if (*cursor == '"') {
-        cursor++;
-        while (*cursor && i < max - 1) {
-            if (*cursor == '"') {
-                cursor++;
-                // double quote is literal quote
-                if (*cursor == '"') {
-                    out[i++] = '"';
-                    cursor++;
-                } else {
-                    break;
-                }
-            } else {
-                out[i++] = *cursor++;
-            }
-        }
-        if (*cursor == ',') cursor++;
-    } else {
-        while (*cursor && *cursor != ',' && i < max - 1) {
-            out[i++] = *cursor++;
-        }
-        if (*cursor == ',') cursor++;
-    }
-
-    out[i] = '\0';
-    return cursor;
-}
-
-void query(FILE *csv, bool use_range, Range range)
-{
-    char line[MAX_LINE];
-    bool first_row = true;
-
-    while (fgets(line, sizeof(line), csv)) {
-        int len = (int)strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-            line[--len] = '\0';
-        }
-        if (len == 0) continue;
-
-        char chapter_field[32];
-        char verse_field[32];
-
-        char text_field[MAX_LINE];
-        const char *cursor = line;
-        cursor = read_csv_field(cursor, chapter_field, (int)sizeof(chapter_field));
-        cursor = read_csv_field(cursor, verse_field, (int)sizeof(verse_field));
-        cursor = read_csv_field(cursor, text_field, (int)sizeof(text_field));
-        // skip header
-        if (first_row) {
-            first_row = false;
-            if (!isdigit((unsigned char)chapter_field[0])) continue;
-        }
-        //add newline when verse is too long
-        int text_length = strlen(text_field);
-        if(text_length > MAX_LENGTH_BEFORE_SPACE){
-            for(int i = 0; i < (text_length / MAX_LENGTH_BEFORE_SPACE ); i++){
-                char* curr = &text_field[(i+1)*MAX_LENGTH_BEFORE_SPACE];
-
-                for (; *curr != '\0' && *curr != ' '; curr++);
-
-                if (*curr == ' ') {
-                    memmove(curr + 7, curr + 1, strlen(curr + 1) + 1);
-                    *curr       = '\n';
-                    *(curr + 1) = ' ';
-                    *(curr + 2) = ' ';
-                    *(curr + 3) = ' ';
-                    *(curr + 4) = ' ';
-                    *(curr + 5) = ' ';
-                    *(curr + 6) = ' ';
-                    text_length += 6;
-                }
-            }
-        }
-        int chapter = atoi(chapter_field);
-        int verse   = atoi(verse_field);
-        if (chapter <= 0 || verse <= 0) continue;
-
-        if (!use_range || in_range(chapter, verse, range)) {
-            printf("%d:%-3d %s\n\n", chapter, verse, text_field);
-        }
-    }
-}
-enum supported_libraries parse_library_name(char* library){
-    if(strcmpci(library, "bible") == 0){
-        return LIBRARY_BIBLE;
-    }
-    if(strcmpci(library, "quran") == 0){
-        return LIBRARY_QURAN;
-    }
-    if(strcmpci(library, "shakespeare") == 0){
-        return LIBRARY_SHAKESPEARE;
-    }
-    if(strcmpci(library, "poe") == 0){
-        return LIBRARY_POE;
-    }
-    return NO_LIBRARY;
-}
-void handle_download(char* library, char* book){
-    enum supported_libraries selected_library = parse_library_name(library);
-
-    if(selected_library == NO_LIBRARY){
-        fprintf(stderr,
-            "Library %s is not supported or does not exist.", library
-        );
-        return;
-    }
-
-    if(!book){
-        book = "download_entire_library";
-    }
+int host_server() {
+    char exe_path[4096];
+    char command[1024];
     
-    char exe_path[MAX_PATH];
-    char command[512];
-
+#ifdef _WIN32
     GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
-    char* slash = strrchr(exe_path, '\\');
+#else
+    ssize_t count = readlink("/proc/self/exe", exe_path, sizeof(exe_path)-1);
+    if (count != -1) exe_path[count] = '\0';
+#endif
+
+    char *slash = strrchr(exe_path, 
+#ifdef _WIN32
+        '\\'
+#else
+        '/'
+#endif
+    );
     if (slash) {
         *slash = '\0';
     }
 
-    #ifdef _WIN32
-    snprintf(command, sizeof(command), "cmd /c py \"%s\\src\\python\\download_libs.py\" %s %s \"%s\"",  
-    exe_path, 
-    library ? library : "", 
-    book ? book : "",
-    exe_path);
-    #else
-    snprintf(command, sizeof(command), "python3 \"%s/src/python/download_libs.py\" %s %s \"%s\"", 
-    exe_path, 
-    library ? library : "", 
-    book ? book : "",
-    exe_path);
-    #endif
-    FILE *python = popen(command, "r");
-    if (!python) {
-        fprintf(stderr, "Error: could not run download script.\n");
-        return;
+#ifdef _WIN32
+    snprintf(
+        command, sizeof(command),
+        "start cmd /k \"cd /d %s\\src\\python && py -m networking.server\"",
+        exe_path
+    );
+#else
+    snprintf(
+        command, sizeof(command),
+        "gnome-terminal -- bash -c 'cd \"%s/src/python\" && python3 -m networking.server; exec bash'",
+        exe_path
+    );
+#endif
+
+    int result = system(command);
+    if (result != 0) {
+        fprintf(stderr, "Error: could not open terminal to host server.\n");
+        return -2;
     }
 
-    char line[256];
-    while (fgets(line, sizeof(line), python)) {
-        printf("%s", line);
-    }
-
-    pclose(python);
-    
+    return 0;
 }
 
-typedef struct{
-    char* library;
-    char* book;
-    char* ref;
-    int* flags; // bool arry for each possible flags
-    int download;
-} arguments_and_flags;
-
-arguments_and_flags format_args(int argc, char **argv)
+//Payload builders
+int ping(void)
 {
-    arguments_and_flags af = {0};
-    af.download = (strcmpci(argv[1],"download") == 0);
+    return send_and_print("{\"cmd\":\"ping\"}");
+}
 
-    int no_lib = (argc >= 2 && strcmpci(argv[1], "quran") == 0);
-        if (af.download) {
-        /* libquery download bible genesis */
-            af.library = (argc >= 3) ? argv[2] : NULL;
-            af.book = (argc >= 4) ? argv[3] : NULL;
-            af.ref = NULL;
-        return af;
-    }
-    if (no_lib) {
-        af.library = "quran";
-        af.book = "quran";
-        af.ref = (argc >= 3) ? argv[2] : NULL;
+int download(const char *library, const char *book)
+{
+    char payload[512];
+    if (book)
+        snprintf(payload, sizeof(payload),
+            "{\"cmd\":\"download\",\"library\":\"%s\",\"book\":\"%s\"}",
+            library, book);
+    else
+        snprintf(payload, sizeof(payload),
+            "{\"cmd\":\"download\",\"library\":\"%s\"}",
+            library);
+    return send_and_print(payload);
+}
+
+int query(const char *library, const char *book, bool use_range, Range range)
+{
+    char payload[1024];
+    if (!use_range) {
+        // print entire book chapters 1-999
+        snprintf(payload, sizeof(payload),
+            "{\"cmd\":\"query\","
+            "\"library\":\"%s\","
+            "\"book\":\"%s\","
+            "\"start_chapter\":1,"
+            "\"start_verse\":-1,"
+            "\"end_chapter\":999,"
+            "\"end_verse\":-1,"
+            "\"lang\":\"en\"}",
+            library, book);
     } else {
-        af.library = (argc >= 2) ? argv[1] : NULL;
-        af.book = (argc >= 3) ? argv[2] : NULL;
-        af.ref = (argc >= 4) ? argv[3] : NULL;
+        snprintf(payload, sizeof(payload),
+            "{\"cmd\":\"query\","
+            "\"library\":\"%s\","
+            "\"book\":\"%s\","
+            "\"start_chapter\":%d,"
+            "\"start_verse\":%d,"
+            "\"end_chapter\":%d,"
+            "\"end_verse\":%d,"
+            "\"lang\":\"en\"}",
+            library, book,
+            range.start.chapter,
+            range.start.verse,    // -1 for no verse
+            range.end.chapter,
+            range.end.verse);
     }
 
-    af.flags = NULL;
-    return af;
+    return send_and_print(payload);
 }
-void print_help(){
-    fprintf(stdout,
+
+void print_help(void)
+{
+    printf(
         "Usage:\n"
-        "  libquery <library> <book> [ref] [flags]\n\n"
-        "  or for books without a library:\n\n"
-        "  libquery <book> [ref] [flags]\n\n"
+        "  libquery <library> <book> [ref]\n\n"
+        "References:\n"
+        "  4          Chapter 4\n"
+        "  4:3        Chapter 4, verse 3\n"
+        "  4-6        Chapters 4 through 6\n"
+        "  4:3-6      4:3 through end of chapter 6\n"
+        "  4-6:12     Start of chapter 4 through 6:12\n"
+        "  4:3-6:12   4:3 through 6:12\n\n"
         "Examples:\n"
-        "  libquery bible Genesis 1          (Prints Genesis 1)\n"
-        "  libquery bible Exodus 2-4         (Prints Exodus 2,3, and 4)\n"
-        "  libquery bible john 3:16          (Prints John 3:16)\n"
-        "  libquery quran 2:1-2:10           (Prints the first 10 verses of the second chapter)"   
+        "  libquery bible mark 4\n"
+        "  libquery bible genesis 1:1-1:10\n"
+        "  libquery quran al-baqarah 2:255\n\n"
+        "Other commands:\n"
+        "  libquery download bible mark    Downloads a book\n"
+        "  libquery download bible         Downloads entire library\n"
+        "  libquery host                   Hosts the server\n"
+        "  libquery ping                   Check server connection\n"
     );
 }
-void print_welcome(){
-        fprintf(stdout,
-        "Temporary welcome message and simple commands"
+
+static void print_welcome(void)
+{
+    printf(
+        "Welcome to LibQuery, a distributed literary corpus query system\n"
+        "Type 'libquery help' for usage.\n"
     );
 }
+
 int main(int argc, char *argv[])
-{   
-    if(argc == 1){
+{
+    if (net_init() != 0) {
+        fprintf(stderr, "Error: network initialisation failed.\n");
+        return 1;
+    }
+
+    int rc = 0;
+
+    if (argc == 1) {
         print_welcome();
-        return 0;
+        goto done;
     }
-    if(argc == 2 && ((strcmpci(argv[1],"help") == 0) || strcmpci(argv[1],"h") == 0)){
+    if (argc == 2 && strcasecmp(argv[1], "host") == 0) {
+        rc = host_server();
+        goto done;
+    }
+
+    if (argc == 2 && (strcasecmp(argv[1], "help") == 0 ||
+                      strcasecmp(argv[1], "h")   == 0)) {
         print_help();
-        return 0;
+        goto done;
     }
 
-    arguments_and_flags all_args = format_args(argc, argv);
-
-    if (all_args.download) {
-        handle_download(all_args.library, all_args.book);
-        return 0;
+    if (argc == 2 && strcasecmp(argv[1], "ping") == 0) {
+        rc = ping();
+        goto done;
     }
 
-    char* library = all_args.library;
-    char* book = all_args.book;
-    char* ref = all_args.ref;
-
-    if (!library) {
-        fprintf(stderr, "Error: no library specified.\n");
-        return 1;
-    }
-    if (!book) {
-        fprintf(stderr, "Error: no book specified.\n");
-        return 1;
-    }
-
-    char library_path[MAX_PATH];
-    char book_path[MAX_PATH];
-
-    //find the library folder
-    if (!find_library(library, library_path, sizeof(library_path))) {
-        fprintf(stderr, "Error: library directory '%s' not found.\n", library);
-        return 1;
+    if (argc >= 2 && strcasecmp(argv[1], "download") == 0) {
+        const char *library = (argc >= 3) ? argv[2] : NULL;
+        const char *book = (argc >= 4) ? argv[3] : NULL;
+        if (!library) {
+            fprintf(stderr, "Error: specify a library, e.g. 'libquery download bible'\n");
+            rc = 1;
+            goto done;
+        }
+        rc = download(library, book);
+        goto done;
     }
 
-    //find the book csv inside it
-    if (!find_book(library_path, book, book_path, sizeof(book_path))) {
-        fprintf(stderr, "Error: book '%s' not found in '%s'.\n", book, library_path);
-        return 1;
+    /* Normal query */
+    if (argc < 3) {
+        fprintf(stderr, "Error: specify library and book.  Try 'libquery help'.\n");
+        rc = 1;
+        goto done;
     }
 
-    //open the file
-    FILE *file = fopen(book_path, "r");
-    if (!file) {
-        perror("Error opening CSV");
-        return 1;
-    }
+    const char *library = argv[1];
+    const char *book    = argv[2];
+    const char *ref     = (argc >= 4) ? argv[3] : NULL;
 
-    // parse the optional reference argument
-    bool use_range = false;
+    bool  use_range = false;
     Range range;
     memset(&range, 0, sizeof(range));
 
-    if (argc >= 4) {
+    if (ref) {
         if (!parse_range(ref, &range)) {
             fprintf(stderr, "Error: cannot parse reference '%s'.\n", ref);
-            fclose(file);
-            return 1;
+            rc = 1;
+            goto done;
         }
         use_range = true;
     }
 
-    query(file, use_range, range);
-    fclose(file);
-    return 0;
+    rc = query(library, book, use_range, range);
+
+done:
+    net_cleanup();
+    return rc;
 }
