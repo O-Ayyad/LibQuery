@@ -58,11 +58,52 @@ static void net_cleanup(void)
 #endif
 }
 
+//Send an print but no error message. Used only to check if server is online or not
+int send_and_print_quiet(const char *payload){ 
+    const char *host = getenv("LIBQUERY_HOST");
+    if (!host) host = "127.0.0.1";
+    sock_t s;
+    struct sockaddr_in addr;
+    int n;
+
+    s =socket(AF_INET, SOCK_STREAM, 0);
+    if ((int)s < 0) {
+        return 1;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(SERVER_PORT);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
+        CLOSE_SOCKET(s);
+        return 1;
+    }
+    if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        CLOSE_SOCKET(s);
+        return 1;
+    }
+
+    send(s, payload, (int)strlen(payload), 0);
+
+
+    #ifndef _WIN32
+    shutdown(s, SHUT_WR);
+    #endif
+
+    char chunk[4096];
+    while ((n = recv(s, chunk, sizeof(chunk) - 1, 0)) > 0) {
+        chunk[n] = '\0';
+        fputs(chunk, stdout);
+    }
+    putchar('\n');
+
+    CLOSE_SOCKET(s);
+    return 0;
+}
 
 // Send the payload to the server and prints the return
 // Returns 0 on success, 1 on failure.
-static int send_and_print(const char *payload)
-{
+int send_and_print(const char *payload){
     const char *host = getenv("LIBQUERY_HOST");
     if (!host) host = "127.0.0.1";
     sock_t s;
@@ -83,10 +124,10 @@ static int send_and_print(const char *payload)
         CLOSE_SOCKET(s);
         return 1;
     }
-
     if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        
         fprintf(stderr,
-            "Error: cannot connect to LibQuery server at %s:%d.\n"
+            "Error: Cannot connect to LibQuery server at %s:%d.\n"
             "       Is the server running?  Start it with:\n"
             "       libquery host\n",
             host, SERVER_PORT);
@@ -111,8 +152,21 @@ static int send_and_print(const char *payload)
     CLOSE_SOCKET(s);
     return 0;
 }
+int ping(bool quiet) {
+    if(quiet){
+        return send_and_print_quiet("{\"cmd\":\"ping\",\"flags\":[\"quiet\"]}");
+    }
+    return send_and_print("{\"cmd\":\"ping\"}");
+}
 
+int close_server(void){
+    return send_and_print("{\"cmd\":\"close\"}");
+}
 int host_server() {
+    if(!ping(true)){
+        fprintf(stderr, "Error: Server is already running.\n");
+        return 0;
+    }
     char exe_path[4096];
     char command[1024];
     
@@ -135,9 +189,9 @@ int host_server() {
     }
 
 #ifdef _WIN32
-    snprintf(
+snprintf(
         command, sizeof(command),
-        "start cmd /k \"cd /d %s\\src\\python && py -m networking.server\"",
+        "start \"LibQuery Server\" cmd /c \"cd /d %s\\src\\python && python -m networking.server\"",
         exe_path
     );
 #else
@@ -153,18 +207,13 @@ int host_server() {
         fprintf(stderr, "Error: could not open terminal to host server.\n");
         return -2;
     }
-
+    fprintf(stdout, "Server hosted successfully on port %d", SERVER_PORT);
     return 0;
 }
 
 //Payload builders
-int ping(void)
-{
-    return send_and_print("{\"cmd\":\"ping\"}");
-}
 
-int download(const char *library, const char *book)
-{
+int download(const char *library, const char *book){
     char payload[512];
     if (book)
         snprintf(payload, sizeof(payload),
@@ -177,8 +226,7 @@ int download(const char *library, const char *book)
     return send_and_print(payload);
 }
 
-int query(const char *library, const char *book, bool use_range, Range range)
-{
+int query(const char *library, const char *book, bool use_range, Range range){
     char payload[1024];
     if (!use_range) {
         // print entire book chapters 1-999
@@ -212,8 +260,7 @@ int query(const char *library, const char *book, bool use_range, Range range)
     return send_and_print(payload);
 }
 
-void print_help(void)
-{
+void print_help(void){
     printf(
         "Usage:\n"
         "  libquery <library> <book> [ref]\n\n"
@@ -229,23 +276,22 @@ void print_help(void)
         "  libquery bible genesis 1:1-1:10\n"
         "  libquery quran al-baqarah 2:255\n\n"
         "Other commands:\n"
-        "  libquery download bible mark    Downloads a book\n"
-        "  libquery download bible         Downloads entire library\n"
-        "  libquery host                   Hosts the server\n"
-        "  libquery ping                   Check server connection\n"
+        "  libquery download bible mark                 Downloads a book\n"
+        "  libquery download bible                      Downloads entire library\n"
+        "  libquery host                                Hosts the server\n"
+        "  libquery ping                                Check server connection\n"
+        "  libquery alias <library>/<book> <alias>      Allows calling of books with an alias (eg. Libquery b genesis 1:1)\n"
     );
 }
 
-static void print_welcome(void)
-{
+static void print_welcome(void){
     printf(
         "Welcome to LibQuery, a distributed literary corpus query system\n"
         "Type 'libquery help' for usage.\n"
     );
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]){
     if (net_init() != 0) {
         fprintf(stderr, "Error: network initialisation failed.\n");
         return 1;
@@ -257,8 +303,18 @@ int main(int argc, char *argv[])
         print_welcome();
         goto done;
     }
+
     if (argc == 2 && strcasecmp(argv[1], "host") == 0) {
         rc = host_server();
+        goto done;
+    }
+    if (argc == 2 && strcasecmp(argv[1], "close") == 0) {
+        if(ping(true)){
+            fprintf(stderr, "Server is currently not running");
+            goto done;
+        }
+        rc = close_server();
+    
         goto done;
     }
 
@@ -269,7 +325,7 @@ int main(int argc, char *argv[])
     }
 
     if (argc == 2 && strcasecmp(argv[1], "ping") == 0) {
-        rc = ping();
+        rc = ping(false);
         goto done;
     }
 
