@@ -22,6 +22,7 @@ import os
 import sys
 import signal
 import threading
+from typing import Callable
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -35,7 +36,7 @@ def _format_results(rows: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def handle(payload: dict) -> str:
+def handle(payload: dict,  send: Callable[[str], None]) -> str:
     cmd = payload.get("cmd","query")
     flags = payload.get("flags",[])
     match cmd:
@@ -47,7 +48,6 @@ def handle(payload: dict) -> str:
             if("quiet" in flags):
                 print("Server has been pinged silently")
                 return ""
-            
             from config.settings import PORT
             print("Server has been pinged")
             return f"Server is online on port: {PORT}"
@@ -55,7 +55,7 @@ def handle(payload: dict) -> str:
         case "query":
             from query.engine import execute
             try:
-                rows = execute(payload)
+                rows = execute(payload,send)
                 return _format_results(rows)
             except FileNotFoundError as e:
                 return f"ERROR: {e}"
@@ -64,14 +64,12 @@ def handle(payload: dict) -> str:
 
         case "download":
             from ingestion.fetch import fetch
-            from ingestion.ingest import ingest
             library = payload.get("library")
             book = payload.get("book")
             try:
-                fetch(library, book)
-                ingest(library, book)
+                fetch(library, book,send)
                 return f"OK: downloaded and ingested {library}/{book or 'all'}"
             except Exception as e:
                 return f"ERROR: {e}"
     return f"""ERROR: unknown command '{cmd}' 
-            Use Libquery --help for commands"""
+            Use Libquery help for commands"""

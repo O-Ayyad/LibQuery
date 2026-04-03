@@ -39,6 +39,22 @@
 #endif
 
 
+typedef enum { //Requires authentication
+    CMD_CLOSE,
+    CMD_HOST,
+    CMD_REFRESH,
+    UNKNOWN,
+} Server_Commands;
+
+typedef struct {
+    const char    *name;
+    Server_Commands  cmd;
+} CommandEntry;
+
+const CommandEntry COMMANDS[] = {
+    {"host",CMD_HOST},
+    {"close",CMD_CLOSE},
+};
 
 // Socket helpers
 static int net_init(void)
@@ -161,9 +177,15 @@ int ping(bool quiet) {
     }
     return send_and_print("{\"cmd\":\"ping\"}");
 }
+int server_online(){
+    return !ping(true);
+}
 
 int close_server(void){
-    return send_and_print("{\"cmd\":\"close\"}");
+    if(server_online()){
+        return send_and_print("{\"cmd\":\"close\"}");
+    }
+    return 1;
 }
 FILE* run_python(char* path, char* args) {
     char exe_path[4096];
@@ -186,9 +208,9 @@ FILE* run_python(char* path, char* args) {
     return popen(command, "r");
 }
 int host_server() {
-    if(!ping(true)){
+    if(server_online()){
         fprintf(stderr, "Error: Server is already running.\n");
-        return 0;
+        return 1;
     }
     char exe_path[MAX_PATH];
     char command[1024];
@@ -237,6 +259,9 @@ snprintf(
 //Payload builders
 
 int download(const char *library, const char *book){
+    if(!server_online()){
+        fprintf(stderr,"Server is not online");
+    }
     char payload[512];
     if (book)
         snprintf(payload, sizeof(payload),
@@ -248,7 +273,7 @@ int download(const char *library, const char *book){
             library);
     return send_and_print(payload);
 }
-char* alias(char **args, int argc) {
+char* alias(char **args, int argc) { //Local and does not conact server
     char subcmd[64] = "";
     for (int i = 0; i < argc; i++) {
         strncat(subcmd, args[i], sizeof(subcmd) - strlen(subcmd) - 1);
@@ -272,6 +297,9 @@ char* alias(char **args, int argc) {
     return result;
 }
 int query(const char *library, const char *book, bool use_range, Range range){
+    if(!server_online()){
+        fprintf(stderr,"Server is not online");
+    }
     char payload[1024];
     if (!use_range) {
         // print entire book chapters 1-999
@@ -335,7 +363,16 @@ static void print_welcome(void){
         "Type 'libquery help' for usage.\n"
     );
 }
-
+int is_server_command(char* cmd){
+    return ((strcasecmp(cmd, "host") ==0)||(strcasecmp(cmd, "close") ==0)||(strcasecmp(cmd, "refresh") ==0));
+}
+Server_Commands parse_command(char *cmd) {
+    for (int i = 0; i < sizeof(COMMANDS) / sizeof(COMMANDS[0]); i++) {
+        if (strcasecmp(cmd, COMMANDS[i].name) == 0)
+            return COMMANDS[i].cmd;
+    }
+    return UNKNOWN;
+}
 int main(int argc, char *argv[]){
     if (net_init() != 0) {
         fprintf(stderr, "Error: network initialisation failed.\n");
@@ -345,90 +382,114 @@ int main(int argc, char *argv[]){
     int rc = 0;
     do{
         if (argc == 1) {
-                print_welcome();
-                break;
-            }
+            print_welcome();
+            break;
+        }
 
-            if (argc == 2 && strcasecmp(argv[1], "host") == 0) {
-                rc = host_server();
+        if ((argc == 2) && (is_server_command(argv[1]))){
+                
+            Server_Commands command = parse_command(argv[1]);
+
+
+            if(command == UNKNOWN){
+                fprintf(stderr, "Unknown command");
                 break;
             }
-            if (argc == 2 && strcasecmp(argv[1], "close") == 0) {
-                if(ping(true)){
-                    fprintf(stderr, "Server is currently not running");
+            /*if (!authenicate()){
+                break;
+            }*/
+            switch(command){                  
+                case CMD_HOST:
+                    rc= host_server();
                     break;
-                }
-                rc = close_server();
-            
-                break;
-            }
-            if (argc >= 2 && (strcasecmp(argv[1], "alias") == 0)){
-                if(argc == 2 ){
-                    fprintf(stderr,
-                        "Usage:\n"
-                        "  libquery alias add <book or library> <alias>\n"
-                        "  libquery alias ls                  Lists all current aliases\n"
-                        "  libquery alias rm <alias> or all   Removes aliases\n\n"
-                        "Examples:\n"
-                        "  libquery alias add genesis g\n"
-                        "  libquery bible g 1:1 is now valid!\n"
-                        "  libquery alias add bible b\n"
-                        "  libquery b g 1:1 is now valid!\n"
-                    );
+                case CMD_CLOSE:
+                    if(!server_online()){
+                        fprintf(stderr, "Server is not online.");
+                        break;
+                    }
+                    rc=close_server();
                     break;
-                }
-                char *result = alias(&argv[2],argc-2);
-                if (result) printf("%s\n", result);
-                break;
-            }
-            if (argc == 2 && (strcasecmp(argv[1], "help") == 0 ||
-                            strcasecmp(argv[1], "h")   == 0)) {
-                print_help();
-                break;
-            }
-
-            if (argc == 2 && strcasecmp(argv[1], "ping") == 0) {
-                rc = ping(false);
-                break;
-            }
-
-            if (argc >= 2 && strcasecmp(argv[1], "download") == 0) {
-                const char *library = (argc >= 3) ? argv[2] : NULL;
-                const char *book = (argc >= 4) ? argv[3] : NULL;
-                if (!library) {
-                    fprintf(stderr, "Error: specify a library, e.g. 'libquery download bible'\n");
-                    rc = 1;
+                case CMD_REFRESH:
+                    if(!server_online()){
+                        fprintf(stderr, "Server is not online.");
+                        break;
+                    }
+                    //rc = refresh_server();
+                    printf("not implemented");
                     break;
-                }
-                rc = download(library, book);
+                default:
+                    fprintf(stderr, "Unknown server command");
+            }   
+            break;
+        }
+
+        if (argc >= 2 && (strcasecmp(argv[1], "alias") == 0)){
+            if(argc == 2 ){
+                fprintf(stderr,
+                    "Usage:\n"
+                    "  libquery alias add <book or library> <alias>\n"
+                    "  libquery alias ls                  Lists all current aliases\n"
+                    "  libquery alias rm <alias> or all   Removes aliases\n\n"
+                    "Examples:\n"
+                    "  libquery alias add genesis g\n"
+                    "  libquery bible g 1:1 is now valid!\n"
+                    "  libquery alias add bible b\n"
+                    "  libquery b g 1:1 is now valid!\n"
+                );
                 break;
             }
+            char *result = alias(&argv[2],argc-2);
+            if (result) printf("%s\n", result);
+            break;
+        }
+        if (argc == 2 && (strcasecmp(argv[1], "help") == 0 ||
+                        strcasecmp(argv[1], "h")   == 0)) {
+            print_help();
+            break;
+        }
 
-            /* Normal query */
-            if (argc < 3) {
-                fprintf(stderr, "Error: specify library and book.  Try 'libquery help'.\n");
+        if (argc == 2 && strcasecmp(argv[1], "ping") == 0) {
+            rc = ping(false);
+            break;
+        }
+
+        if (argc >= 2 && strcasecmp(argv[1], "download") == 0) {
+            const char *library = (argc >= 3) ? argv[2] : NULL;
+            const char *book = (argc >= 4) ? argv[3] : NULL;
+            if (!library) {
+                fprintf(stderr, "Error: specify a library, e.g. 'libquery download bible'\n");
                 rc = 1;
                 break;
             }
+            rc = download(library, book);
+            break;
+        }
 
-            const char *library = argv[1];
-            const char *book    = argv[2];
-            const char *ref     = (argc >= 4) ? argv[3] : NULL;
+        /* Normal query */
+        if (argc < 3) {
+            fprintf(stderr, "Error: specify library and book.  Try 'libquery help'.\n");
+            rc = 1;
+            break;
+        }
 
-            bool  use_range = false;
-            Range range;
-            memset(&range, 0, sizeof(range));
+        const char *library = argv[1];
+        const char *book    = argv[2];
+        const char *ref     = (argc >= 4) ? argv[3] : NULL;
 
-            if (ref) {
-                if (!parse_range(ref, &range)) {
-                    fprintf(stderr, "Error: cannot parse reference '%s'.\n", ref);
-                    rc = 1;
-                    break;
-                }
-                use_range = true;
+        bool  use_range = false;
+        Range range;
+        memset(&range, 0, sizeof(range));
+
+        if (ref) {
+            if (!parse_range(ref, &range)) {
+                fprintf(stderr, "Error: cannot parse reference '%s'.\n", ref);
+                rc = 1;
+                break;
             }
+            use_range = true;
+        }
 
-            rc = query(library, book, use_range, range);
+        rc = query(library, book, use_range, range);
     }while(0);
     
     net_cleanup();

@@ -23,15 +23,7 @@ import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from config.settings import LIBRARY_CONFIG, RAW_DATA_DIR
-
-def spinner(label, stop_event):
-    for char in itertools.cycle("/-\\|"):
-        if stop_event.is_set():
-            break
-        sys.stdout.write(f"\r{label} {char}")
-        sys.stdout.flush()
-        time.sleep(0.1)
-    sys.stdout.write("\r" + " " * (len(label) + 2) + "\r")  # clear line
+from typing import Callable
 
 
 
@@ -68,7 +60,7 @@ def _save(library: str, filename: str, data: dict) -> str:
     return out_path
 
 
-def fetch_bible(book: str | None = None) -> list[str]:
+def fetch_bible(book: str | None = None, send = Callable[[str], None]) -> list[str]:
 
     #Fetch one Bible book or the full KJV.
     #Returns list of saved file paths.
@@ -79,84 +71,70 @@ def fetch_bible(book: str | None = None) -> list[str]:
 
     if book is None:
         # Full bible
-        stop = threading.Event()
-        t = threading.Thread(target=spinner, args=(stop,"Fetching full Bible (KJV)…"))
-        t.start()
+        send("Fetching full Bible (KJV)...\n")
         r = requests.get(f"{base}.json", timeout=30)
         r.raise_for_status()
-        stop.set()
-        t.join()
         
-        print(f"Done fetching the Bible (KJV)")
+        send(f"Done fetching the Bible (KJV)")
         saved.append(_save("bible", "full_kjv", r.json()))
     else:
         book_key = book.lower()
         num = BIBLE_BOOK_NUMS.get(book_key)
         if num is None:
-            raise ValueError(f"Unknown Bible book: '{book}'")
+            msg = f"Unknown Bible book: '{book}'"
+            send(msg)
+            raise ValueError(msg)
         
-        stop = threading.Event()
-        t = threading.Thread(target=spinner, args= (stop,f"Fetching Bible / {book_key} (book #{num})…"))
-        t.start()
+        send(f"Fetching Bible / {book_key} (book #{num})...\n")
         r = requests.get(f"{base}/{num}.json", timeout=30)
         r.raise_for_status()
-        stop.set()
-        t.join()
 
-        print(f"Done fetching the book of {book_key} (book #{num})")
+        send(f"Done fetching the book of {book_key} (book #{num})")
         saved.append(_save("bible", book_key, r.json()))
 
     return saved
 
 
-def fetch_quran() -> list[str]:
+def fetch_quran(send = Callable[[str], None]) -> list[str]:
     # Fetch Arabic and English Quran and save both
     cfg = LIBRARY_CONFIG["quran"]
     saved = []
 
-    stop = threading.Event()
-    t = threading.Thread(target=spinner, args=(stop,"Fetching Quran (Arabic)…", stop))
-    t.start()
+    send("Fetching Quran (Arabic)...\n")
 
     r = requests.get(cfg["arabic_url"], timeout=60)
     r.raise_for_status()
-    stop.set()
-    t.join()
 
-    print("Done fetching Quran in Arabic")
+    send("Done fetching Quran in Arabic")
 
     saved.append(_save("quran", "arabic", r.json()))
 
     time.sleep(1)  # rate limit
 
-    stop = threading.Event()
-    t = threading.Thread(target=spinner, args=(stop,"Fetching Quran (English)…", stop))
-    t.start()
-
+    send("Fetching Quran (English)...\n")
     r = requests.get(cfg["english_url"], timeout=60)
     r.raise_for_status()
-    stop.set()
-    t.join()
 
-    print("Done fetching Quran in English")
+
+    send("Done fetching Quran in English")
     saved.append(_save("quran", "english_asad", r.json()))
 
     return saved
 
 
-def fetch(library: str, book: str | None = None) -> list[str]:
+def fetch(library: str, book: str | None = None, send = Callable[[str], None]) -> list[str]:
     # Entry point used by c download cmd and by ingest
     library = library.lower()
     if library == "bible":
-        return fetch_bible(book)
+        return fetch_bible(book,send)
     if library == "quran":
-        return fetch_quran()
+        return fetch_quran(send)
     return [f"Unsupported library: '{library}'"]
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python -m ingestion.fetch <library> [book]")
+        print("Usage: libquery download <library> [book]")
         sys.exit(1)
     _lib  = sys.argv[1]
     _book = sys.argv[2] if len(sys.argv) > 2 else None

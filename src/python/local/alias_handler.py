@@ -6,9 +6,9 @@ import os
 import sys
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-ALIAS_FILE = os.path.join(PROJECT_ROOT, "src", "userdata", "aliases.json")
+ALIAS_FILE = os.path.join(PROJECT_ROOT, "data", "userdata", "aliases.json")
 
-RESERVED = {"all", "host", "close", "help", "h", "alias", "ping", "download", "add"}
+RESERVED = {"all", "host", "close", "help", "h", "alias", "ping", "download", "add","","reset"}
 
 
 def load() -> dict:
@@ -66,13 +66,13 @@ def cmd_resolve(alias_name: str) -> str:
     return aliases.get(alias_name, alias_name)  # falls back to original if no alias
 
 
-
-def main():
+# 1 is successful 0 is not
+def main() -> int:
     args = sys.argv[1:]
 
     if not args:
         print("Error: no command provided.", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     cmd = args[0].lower()
 

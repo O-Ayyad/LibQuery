@@ -14,7 +14,7 @@ import asyncio
 import json
 import os
 import sys
-import logging
+from typing import Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from config.settings import HOST, PORT, MAX_CONCURRENT_QUERIES
@@ -22,6 +22,10 @@ from networking.router import handle
 
 
 _semaphore: asyncio.Semaphore | None = None
+
+async def _async_write(writer: asyncio.StreamWriter, msg: str) -> None:
+    writer.write(msg.encode("utf-8"))
+    await writer.drain()
 
 async def _handle_connection(
     reader: asyncio.StreamReader,
@@ -42,7 +46,14 @@ async def _handle_connection(
             else:
                 # handle() is synchronous
                 loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(None, handle, payload)
+
+                def send(msg) -> None: # Sends a message while C send_and_print functions is in while loop
+                    print(msg)
+                    future = asyncio.run_coroutine_threadsafe(
+                        _async_write(writer, msg+"\n"), loop
+                    )
+                    future.result()
+                result = await loop.run_in_executor(None, lambda: handle(payload, send))
 
             writer.write(result.encode("utf-8"))
             await writer.drain()
