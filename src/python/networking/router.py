@@ -1,7 +1,7 @@
 """
 Validates the JSON payload from main.c and routes to query engine or ingestion 
 
-Payload format from c:
+Example payload format from c:
 {
     "cmd":           "query" | "download" | "ping" | etc.,
     "library":       "bible",
@@ -73,6 +73,5 @@ def handle(payload: dict) -> str:
                 return f"OK: downloaded and ingested {library}/{book or 'all'}"
             except Exception as e:
                 return f"ERROR: {e}"
-
     return f"""ERROR: unknown command '{cmd}' 
             Use Libquery --help for commands"""

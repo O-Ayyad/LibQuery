@@ -145,8 +145,6 @@ def ingest(library: str, book: str | None = None) -> str: #book is nullable
         return ingest_quran_json(ar_path, en_path)
 
     if library == "bible":
-        if book is None:
-            raise ValueError("Specify a book name for the Bible, e.g. 'mark'")
         json_path = os.path.join(RAW_DATA_DIR, "bible", f"{book.lower()}.json")
         if not os.path.exists(json_path):
             raise FileNotFoundError(f"Raw file missing: {json_path}  : run fetch first")
@@ -160,6 +158,5 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("library")
     ap.add_argument("book", nargs="?")
-    ap.add_argument("--csv", dest="csv_path")
     args = ap.parse_args()
-    ingest(args.library, args.book, args.csv_path)
+    ingest(args.library, args.book)

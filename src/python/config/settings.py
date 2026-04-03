@@ -16,22 +16,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 RAW_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
 PARQUET_DIR = os.path.join(PROJECT_ROOT, "data", "parquet")
 
-
-'''
-    libquery alias bible b adds "b":"bible" to dictionary
-    libquery b genesis 1:1 is valid
-
-    libquery alias bible genesis g
-    libquery b g 1:1 is now valid
-
-    libquery alias ls lists all current aliases
-    libquery alias rm <alias> or all removes aliases
-
-'''
-LIBRARY_ALIASES = { 
     
-
-}
 LIBRARY_CONFIG = {
     "bible": {
         "base_url": "https://api.getbible.net/v2/kjv",

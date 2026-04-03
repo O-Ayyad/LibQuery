@@ -58,6 +58,8 @@ static void net_cleanup(void)
 #endif
 }
 
+
+
 //Send an print but no error message. Used only to check if server is online or not
 int send_and_print_quiet(const char *payload){ 
     const char *host = getenv("LIBQUERY_HOST");
@@ -100,6 +102,7 @@ int send_and_print_quiet(const char *payload){
     CLOSE_SOCKET(s);
     return 0;
 }
+
 
 // Send the payload to the server and prints the return
 // Returns 0 on success, 1 on failure.
@@ -162,12 +165,32 @@ int ping(bool quiet) {
 int close_server(void){
     return send_and_print("{\"cmd\":\"close\"}");
 }
+FILE* run_python(char* path, char* args) {
+    char exe_path[4096];
+    char command[512];
+
+    GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
+    char* slash = strrchr(exe_path, '\\');
+    if (slash) *slash = '\0';
+
+#ifdef _WIN32
+    snprintf(command, sizeof(command), "py \"%s\\%s\" %s", exe_path, path, args ? args : "");
+#else
+    ssize_t count = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (count != -1) exe_path[count] = '\0';
+    slash = strrchr(exe_path, '/');
+    if (slash) *slash = '\0';
+    snprintf(command, sizeof(command), "python3 \"%s/%s\" %s", exe_path, path, args ? args : "");
+#endif
+
+    return popen(command, "r");
+}
 int host_server() {
     if(!ping(true)){
         fprintf(stderr, "Error: Server is already running.\n");
         return 0;
     }
-    char exe_path[4096];
+    char exe_path[MAX_PATH];
     char command[1024];
     
 #ifdef _WIN32
@@ -225,7 +248,29 @@ int download(const char *library, const char *book){
             library);
     return send_and_print(payload);
 }
+char* alias(char **args, int argc) {
+    char subcmd[64] = "";
+    for (int i = 0; i < argc; i++) {
+        strncat(subcmd, args[i], sizeof(subcmd) - strlen(subcmd) - 1);
+        if (i < argc - 1)
+            strncat(subcmd, " ", sizeof(subcmd) - strlen(subcmd) - 1);
+    }
 
+#ifdef _WIN32
+    FILE *fp = run_python("src\\python\\local\\alias_handler.py", subcmd);
+#else
+    FILE *fp = run_python("src/python/local/alias_handler.py", subcmd);
+#endif
+
+    if (!fp) return NULL;
+
+    static char result[2048];
+    fgets(result, sizeof(result), fp);
+    pclose(fp);
+
+    result[strcspn(result, "\n")] = '\0';
+    return result;
+}
 int query(const char *library, const char *book, bool use_range, Range range){
     char payload[1024];
     if (!use_range) {
@@ -298,76 +343,94 @@ int main(int argc, char *argv[]){
     }
 
     int rc = 0;
+    do{
+        if (argc == 1) {
+                print_welcome();
+                break;
+            }
 
-    if (argc == 1) {
-        print_welcome();
-        goto done;
-    }
+            if (argc == 2 && strcasecmp(argv[1], "host") == 0) {
+                rc = host_server();
+                break;
+            }
+            if (argc == 2 && strcasecmp(argv[1], "close") == 0) {
+                if(ping(true)){
+                    fprintf(stderr, "Server is currently not running");
+                    break;
+                }
+                rc = close_server();
+            
+                break;
+            }
+            if (argc >= 2 && (strcasecmp(argv[1], "alias") == 0)){
+                if(argc == 2 ){
+                    fprintf(stderr,
+                        "Usage:\n"
+                        "  libquery alias add <book or library> <alias>\n"
+                        "  libquery alias ls                  Lists all current aliases\n"
+                        "  libquery alias rm <alias> or all   Removes aliases\n\n"
+                        "Examples:\n"
+                        "  libquery alias add genesis g\n"
+                        "  libquery bible g 1:1 is now valid!\n"
+                        "  libquery alias add bible b\n"
+                        "  libquery b g 1:1 is now valid!\n"
+                    );
+                    break;
+                }
+                char *result = alias(&argv[2],argc-2);
+                if (result) printf("%s\n", result);
+                break;
+            }
+            if (argc == 2 && (strcasecmp(argv[1], "help") == 0 ||
+                            strcasecmp(argv[1], "h")   == 0)) {
+                print_help();
+                break;
+            }
 
-    if (argc == 2 && strcasecmp(argv[1], "host") == 0) {
-        rc = host_server();
-        goto done;
-    }
-    if (argc == 2 && strcasecmp(argv[1], "close") == 0) {
-        if(ping(true)){
-            fprintf(stderr, "Server is currently not running");
-            goto done;
-        }
-        rc = close_server();
+            if (argc == 2 && strcasecmp(argv[1], "ping") == 0) {
+                rc = ping(false);
+                break;
+            }
+
+            if (argc >= 2 && strcasecmp(argv[1], "download") == 0) {
+                const char *library = (argc >= 3) ? argv[2] : NULL;
+                const char *book = (argc >= 4) ? argv[3] : NULL;
+                if (!library) {
+                    fprintf(stderr, "Error: specify a library, e.g. 'libquery download bible'\n");
+                    rc = 1;
+                    break;
+                }
+                rc = download(library, book);
+                break;
+            }
+
+            /* Normal query */
+            if (argc < 3) {
+                fprintf(stderr, "Error: specify library and book.  Try 'libquery help'.\n");
+                rc = 1;
+                break;
+            }
+
+            const char *library = argv[1];
+            const char *book    = argv[2];
+            const char *ref     = (argc >= 4) ? argv[3] : NULL;
+
+            bool  use_range = false;
+            Range range;
+            memset(&range, 0, sizeof(range));
+
+            if (ref) {
+                if (!parse_range(ref, &range)) {
+                    fprintf(stderr, "Error: cannot parse reference '%s'.\n", ref);
+                    rc = 1;
+                    break;
+                }
+                use_range = true;
+            }
+
+            rc = query(library, book, use_range, range);
+    }while(0);
     
-        goto done;
-    }
-
-    if (argc == 2 && (strcasecmp(argv[1], "help") == 0 ||
-                      strcasecmp(argv[1], "h")   == 0)) {
-        print_help();
-        goto done;
-    }
-
-    if (argc == 2 && strcasecmp(argv[1], "ping") == 0) {
-        rc = ping(false);
-        goto done;
-    }
-
-    if (argc >= 2 && strcasecmp(argv[1], "download") == 0) {
-        const char *library = (argc >= 3) ? argv[2] : NULL;
-        const char *book = (argc >= 4) ? argv[3] : NULL;
-        if (!library) {
-            fprintf(stderr, "Error: specify a library, e.g. 'libquery download bible'\n");
-            rc = 1;
-            goto done;
-        }
-        rc = download(library, book);
-        goto done;
-    }
-
-    /* Normal query */
-    if (argc < 3) {
-        fprintf(stderr, "Error: specify library and book.  Try 'libquery help'.\n");
-        rc = 1;
-        goto done;
-    }
-
-    const char *library = argv[1];
-    const char *book    = argv[2];
-    const char *ref     = (argc >= 4) ? argv[3] : NULL;
-
-    bool  use_range = false;
-    Range range;
-    memset(&range, 0, sizeof(range));
-
-    if (ref) {
-        if (!parse_range(ref, &range)) {
-            fprintf(stderr, "Error: cannot parse reference '%s'.\n", ref);
-            rc = 1;
-            goto done;
-        }
-        use_range = true;
-    }
-
-    rc = query(library, book, use_range, range);
-
-done:
     net_cleanup();
     return rc;
 }

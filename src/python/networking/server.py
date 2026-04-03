@@ -20,21 +20,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from config.settings import HOST, PORT, MAX_CONCURRENT_QUERIES
 from networking.router import handle
 
-log_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs", "server.log")
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(log_path),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-log = logging.getLogger("libquery")
 
 _semaphore: asyncio.Semaphore | None = None
-
 
 async def _handle_connection(
     reader: asyncio.StreamReader,
@@ -54,7 +41,7 @@ async def _handle_connection(
                 result = f"ERROR: malformed JSON : {e}"
             else:
                 # handle() is synchronous
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 result = await loop.run_in_executor(None, handle, payload)
 
             writer.write(result.encode("utf-8"))
@@ -85,4 +72,11 @@ async def _run() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(_run())
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        print("\nServer stopped.")
+    except Exception as e:
+        print(f"\nFatal error: {e}")
+    finally:
+        input("\nPress Enter to exit...")

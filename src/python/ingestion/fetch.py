@@ -80,7 +80,7 @@ def fetch_bible(book: str | None = None) -> list[str]:
     if book is None:
         # Full bible
         stop = threading.Event()
-        t = threading.Thread(target=spinner, args="Fetching full Bible (KJV)…")
+        t = threading.Thread(target=spinner, args=(stop,"Fetching full Bible (KJV)…"))
         t.start()
         r = requests.get(f"{base}.json", timeout=30)
         r.raise_for_status()
@@ -96,7 +96,7 @@ def fetch_bible(book: str | None = None) -> list[str]:
             raise ValueError(f"Unknown Bible book: '{book}'")
         
         stop = threading.Event()
-        t = threading.Thread(target=spinner, args= f"Fetching Bible / {book_key} (book #{num})…")
+        t = threading.Thread(target=spinner, args= (stop,f"Fetching Bible / {book_key} (book #{num})…"))
         t.start()
         r = requests.get(f"{base}/{num}.json", timeout=30)
         r.raise_for_status()
@@ -115,7 +115,7 @@ def fetch_quran() -> list[str]:
     saved = []
 
     stop = threading.Event()
-    t = threading.Thread(target=spinner, args=("Fetching Quran (Arabic)…", stop))
+    t = threading.Thread(target=spinner, args=(stop,"Fetching Quran (Arabic)…", stop))
     t.start()
 
     r = requests.get(cfg["arabic_url"], timeout=60)
@@ -130,7 +130,7 @@ def fetch_quran() -> list[str]:
     time.sleep(1)  # rate limit
 
     stop = threading.Event()
-    t = threading.Thread(target=spinner, args=("Fetching Quran (English)…", stop))
+    t = threading.Thread(target=spinner, args=(stop,"Fetching Quran (English)…", stop))
     t.start()
 
     r = requests.get(cfg["english_url"], timeout=60)
