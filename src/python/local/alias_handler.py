@@ -8,7 +8,7 @@ import sys
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 ALIAS_FILE = os.path.join(PROJECT_ROOT, "data", "userdata", "aliases.json")
 
-RESERVED = {"all", "host", "close", "help", "h", "alias", "ping", "download", "add","","restart"}
+RESERVED = {"all", "host", "close", "help", "h", "alias", "ping", "download", "add","","restart","target",}
 
 
 def load() -> dict:
@@ -90,12 +90,6 @@ def main() -> int:
             print("Usage: rm <alias|all>", file=sys.stderr)
             sys.exit(1)
         print(cmd_rm(args[1]))
-
-    elif cmd == "resolve":
-        if len(args) != 2:
-            print("Usage: resolve <alias>", file=sys.stderr)
-            sys.exit(1)
-        print(cmd_resolve(args[1]))
 
     else:
         print(f"Error: unknown command '{cmd}'.", file=sys.stderr)

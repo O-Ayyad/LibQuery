@@ -77,6 +77,51 @@ static void net_cleanup(void)
 #endif
 }
 
+void get_project_root(char *out, size_t size) {
+#ifdef _WIN32
+    GetModuleFileNameA(NULL, out, (DWORD)size);
+    char *last = strrchr(out, '\\');
+    if (last) *last = '\0';  
+#else
+    readlink("/proc/self/exe", out, size);
+    char *last = strrchr(out, '/');
+    if (last) *last = '\0';
+#endif
+}
+
+char* get_ip() {
+    static char result[128];
+    char config_path[512];
+    char project_root[512];
+    get_project_root(project_root, sizeof(project_root));
+
+    snprintf(config_path, sizeof(config_path), "%s/data/userdata/networking_config.json", project_root);
+
+    FILE* f = fopen(config_path, "r");
+    if (!f) return "127.0.0.1";
+
+    char buf[1024];
+    fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+
+    char* key = strstr(buf, "\"target_ip\"");
+    if (!key) return "127.0.0.1";
+
+    char* colon = strchr(key, ':');
+    if (!colon) return "127.0.0.1";
+
+    char* quote = strchr(colon, '"');
+    if (!quote) return "127.0.0.1";
+
+    char* end = strchr(quote + 1, '"');
+    if (!end) return "127.0.0.1";
+
+    size_t len = end - (quote + 1);
+    strncpy(result, quote + 1, len);
+    result[len] = '\0';
+    return result;
+}
+
 
 void print_verse(int chapter, int verse, const char *text) {
     char ref[16];
@@ -113,7 +158,7 @@ void print_verse(int chapter, int verse, const char *text) {
 }
 //Send an print but no error message. Used only to check if server is online or not
 int send_and_print_quiet(const char *payload){ 
-    const char *host = getenv("LIBQUERY_HOST");
+    const char *host = get_ip();
     if (!host) host = "127.0.0.1";
     sock_t s;
     struct sockaddr_in addr;
@@ -174,7 +219,7 @@ int send_and_print_quiet(const char *payload){
 // Send the payload to the server and prints the return
 // Returns 0 on success, 1 on failure.
 int send_and_print(const char *payload){
-    const char *host = getenv("LIBQUERY_HOST");
+    const char *host = get_ip();
     if (!host) host = "127.0.0.1";
     sock_t s;
     struct sockaddr_in addr;
@@ -379,7 +424,35 @@ char* alias(char **args, int argc) { //Local and does not conact server
     if (!fp) return NULL;
 
     static char result[2048];
-    fgets(result, sizeof(result), fp);
+    if (fgets(result, sizeof(result), fp) == NULL) {
+        pclose(fp);
+        return NULL;
+    }
+    pclose(fp);
+
+    result[strcspn(result, "\n")] = '\0';
+    return result;
+}
+//libquery target
+//libquery target <ip>
+//libquery target (local, remove, localhost) all removes the ip and falls back to local
+char* target_ip(char* payload){
+    char cmd[64] = {0};
+    strncpy(cmd, payload, sizeof(cmd) - 1);
+
+    #ifdef _WIN32
+    FILE *fp = run_python("src\\python\\local\\network_handler.py", cmd);
+    #else
+    FILE *fp = run_python("src/python/local/network_handler.py", cmd);
+    #endif
+    
+    if (!fp) return NULL;
+
+    static char result[2048];
+    if (fgets(result, sizeof(result), fp) == NULL) {
+        pclose(fp);
+        return NULL;
+    }
     pclose(fp);
 
     result[strcspn(result, "\n")] = '\0';
@@ -444,6 +517,7 @@ void print_help(void){
         "  libquery ping                                Check server connection\n"
         "  libquery restart                             Restarts the server\n"
         "  libquery alias <library>/<book> <alias>      Allows calling of books with an alias (eg. Libquery b genesis 1:1)\n"
+        "  libquery target <IP>                         Changes target IP. Use libquery target help for more information."
     );
 }
 
@@ -464,17 +538,6 @@ Server_Commands parse_command(char *cmd) {
     return UNKNOWN;
 }
 
-void get_project_root(char *out, size_t size) {
-#ifdef _WIN32
-    GetModuleFileNameA(NULL, out, (DWORD)size);
-    char *last = strrchr(out, '\\');
-    if (last) *last = '\0';  
-#else
-    readlink("/proc/self/exe", out, size);
-    char *last = strrchr(out, '/');
-    if (last) *last = '\0';
-#endif
-}
 
 int hadoop_available(char *project_root) {
 #ifdef _WIN32
@@ -567,6 +630,34 @@ int main(int argc, char *argv[]){
                 );
                 break;
             }
+            char *result = alias(&argv[2],argc-2);
+            if (result) printf("%s\n", result);
+            break;
+        }
+
+        if (argc >= 2 && (strcasecmp(argv[1], "target") == 0)){
+            if(argc == 2 ){
+                target_ip(argv[1]);
+                break;
+            }
+            else if(argc == 3){
+                if(strcasecmp(argv[2], "help") == 0){
+                    fprintf(stderr,
+                    "Usage:\n"
+                    "  libquery target                    Prints current target IP\n"
+                    "  libquery target <IP Address>       Sets target IP Address\n"
+                    "  libquery target rm/remove          Removes target and defaults to localhost 127.0.0.1\n\n"
+                    "  libquery target local/localhost    Sets target to localhost"
+                );
+                break;
+                }
+                char buf[128];
+                snprintf(buf, sizeof(buf), "%s %s", argv[1], argv[2]);
+                char* result = target_ip(buf);
+                if (result) printf("%s\n", result);
+                break;
+            }
+            
             char *result = alias(&argv[2],argc-2);
             if (result) printf("%s\n", result);
             break;
