@@ -55,7 +55,7 @@ def handle(payload: dict,  send: Callable[[str], None]) -> str:
         case "query":
             from query.engine import execute
             try:
-                rows = execute(payload,send)
+                rows = execute(payload)
                 return _format_results(rows)
             except FileNotFoundError as e:
                 return f"ERROR: {e}"

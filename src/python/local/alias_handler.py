@@ -8,7 +8,7 @@ import sys
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 ALIAS_FILE = os.path.join(PROJECT_ROOT, "data", "userdata", "aliases.json")
 
-RESERVED = {"all", "host", "close", "help", "h", "alias", "ping", "download", "add","","reset"}
+RESERVED = {"all", "host", "close", "help", "h", "alias", "ping", "download", "add","","restart"}
 
 
 def load() -> dict:

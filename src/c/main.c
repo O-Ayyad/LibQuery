@@ -25,6 +25,8 @@
 
 #define SERVER_PORT 9237
 
+#define LINE_WIDTH 200
+
 #ifdef _WIN32
   #include <winsock2.h>
   #include <ws2tcpip.h>
@@ -42,18 +44,19 @@
 typedef enum { //Requires authentication
     CMD_CLOSE,
     CMD_HOST,
-    CMD_REFRESH,
+    CMD_RESTART,
     UNKNOWN,
 } Server_Commands;
 
 typedef struct {
-    const char    *name;
+    const char *name;
     Server_Commands  cmd;
 } CommandEntry;
 
 const CommandEntry COMMANDS[] = {
     {"host",CMD_HOST},
     {"close",CMD_CLOSE},
+    {"restart",CMD_RESTART},
 };
 
 // Socket helpers
@@ -75,7 +78,39 @@ static void net_cleanup(void)
 }
 
 
+void print_verse(int chapter, int verse, const char *text) {
+    char ref[16];
+    snprintf(ref, sizeof(ref), "%d:%-4d ", chapter, verse);
+    int ref_len    = strlen(ref);
+    int text_width = LINE_WIDTH - ref_len;
 
+    printf("%s", ref);
+
+    int len   = strlen(text);
+    int pos   = 0;
+    int first = 1;
+
+    while (pos < len) {
+        if (!first)
+            printf("%*s", ref_len, "");
+
+        int remaining = len - pos;
+        if (remaining <= text_width) {
+            printf("%s\n", text + pos);
+            break;
+        }
+
+        int cut = text_width;
+        while (cut > 0 && text[pos + cut] != ' ')
+            cut--;
+        if (cut == 0) cut = text_width;
+
+        printf("%.*s\n", cut, text + pos);
+        pos  += cut + 1;
+        first = 0;
+    }
+    printf("\n");
+}
 //Send an print but no error message. Used only to check if server is online or not
 int send_and_print_quiet(const char *payload){ 
     const char *host = getenv("LIBQUERY_HOST");
@@ -108,13 +143,29 @@ int send_and_print_quiet(const char *payload){
     shutdown(s, SHUT_WR);
     #endif
 
-    char chunk[4096];
-    while ((n = recv(s, chunk, sizeof(chunk) - 1, 0)) > 0) {
-        chunk[n] = '\0';
-        fputs(chunk, stdout);
-    }
-    putchar('\n');
+    char buf[65536];
+    int  buf_len = 0;
 
+    while ((n = recv(s, buf + buf_len, sizeof(buf) - buf_len - 1, 0)) > 0) {
+        buf_len += n;
+        buf[buf_len] = '\0';
+
+        char *line_start = buf;
+        char *newline;
+
+        while ((newline = strchr(line_start, '\n')) != NULL) {
+            *newline = '\0';
+            int chapter, verse;
+            char text[4096];
+            if (sscanf(line_start, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
+                print_verse(chapter, verse, text);
+
+            line_start = newline + 1;
+        }
+
+        buf_len = buf_len - (line_start - buf);
+        memmove(buf, line_start, buf_len);
+    }
     CLOSE_SOCKET(s);
     return 0;
 }
@@ -161,13 +212,41 @@ int send_and_print(const char *payload){
     shutdown(s, SHUT_WR);
     #endif
 
-    char chunk[4096];
-    while ((n = recv(s, chunk, sizeof(chunk) - 1, 0)) > 0) {
-        chunk[n] = '\0';
-        fputs(chunk, stdout);
-    }
-    putchar('\n');
+    char buf[65536];
+    int  buf_len = 0;
 
+    while ((n = recv(s, buf + buf_len, sizeof(buf) - buf_len - 1, 0)) > 0) {
+        buf_len += n;
+        buf[buf_len] = '\0';
+
+        char *line_start = buf;
+        char *newline;
+
+        while ((newline = strchr(line_start, '\n')) != NULL) {
+            *newline = '\0';
+            int chapter, verse;
+            char text[4096];
+            if (sscanf(line_start, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
+                print_verse(chapter, verse, text);
+            else if (*line_start != '\0')
+                printf("%s\n", line_start);
+
+            line_start = newline + 1;
+        }
+
+        buf_len = buf + buf_len - line_start;
+        memmove(buf, line_start, buf_len);
+    }
+
+    if (buf_len > 0) {
+        buf[buf_len] = '\0';
+        int chapter, verse;
+        char text[4096];
+        if (sscanf(buf, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
+            print_verse(chapter, verse, text);
+        else
+            printf("%s\n", buf);
+    }
     CLOSE_SOCKET(s);
     return 0;
 }
@@ -181,12 +260,6 @@ int server_online(){
     return !ping(true);
 }
 
-int close_server(void){
-    if(server_online()){
-        return send_and_print("{\"cmd\":\"close\"}");
-    }
-    return 1;
-}
 FILE* run_python(char* path, char* args) {
     char exe_path[4096];
     char command[512];
@@ -255,12 +328,28 @@ snprintf(
     fprintf(stdout, "Server hosted successfully on port %d", SERVER_PORT);
     return 0;
 }
+int close_server(void){
+    if(server_online()){
+        return send_and_print("{\"cmd\":\"close\"}");
+    }
+    return 1;
+}
+int restart_server(){
+    int a = close_server();
+    #ifdef _WIN32
+    Sleep(2000);
+    #else
+    sleep(2);
+    #endif
+    int b = host_server();
+    return a && b;
+}
 
 //Payload builders
 
 int download(const char *library, const char *book){
     if(!server_online()){
-        fprintf(stderr,"Server is not online");
+        fprintf(stderr,"Server is not online\n");
     }
     char payload[512];
     if (book)
@@ -347,12 +436,13 @@ void print_help(void){
         "Examples:\n"
         "  libquery bible mark 4\n"
         "  libquery bible genesis 1:1-1:10\n"
-        "  libquery quran al-baqarah 2:255\n\n"
+        "  libquery quran 2:255\n\n"
         "Other commands:\n"
         "  libquery download bible mark                 Downloads a book\n"
         "  libquery download bible                      Downloads entire library\n"
         "  libquery host                                Hosts the server\n"
         "  libquery ping                                Check server connection\n"
+        "  libquery restart                             Restarts the server\n"
         "  libquery alias <library>/<book> <alias>      Allows calling of books with an alias (eg. Libquery b genesis 1:1)\n"
     );
 }
@@ -364,18 +454,58 @@ static void print_welcome(void){
     );
 }
 int is_server_command(char* cmd){
-    return ((strcasecmp(cmd, "host") ==0)||(strcasecmp(cmd, "close") ==0)||(strcasecmp(cmd, "refresh") ==0));
+    return ((strcasecmp(cmd, "host") ==0)||(strcasecmp(cmd, "close") ==0)||(strcasecmp(cmd, "restart") ==0));
 }
 Server_Commands parse_command(char *cmd) {
-    for (int i = 0; i < sizeof(COMMANDS) / sizeof(COMMANDS[0]); i++) {
+    for (int i = 0; i < (int)(sizeof(COMMANDS) / sizeof(COMMANDS[0])); i++) {
         if (strcasecmp(cmd, COMMANDS[i].name) == 0)
             return COMMANDS[i].cmd;
     }
     return UNKNOWN;
 }
+
+void get_project_root(char *out, size_t size) {
+#ifdef _WIN32
+    GetModuleFileNameA(NULL, out, (DWORD)size);
+    char *last = strrchr(out, '\\');
+    if (last) *last = '\0';  
+#else
+    readlink("/proc/self/exe", out, size);
+    char *last = strrchr(out, '/');
+    if (last) *last = '\0';
+#endif
+}
+
+int hadoop_available(char *project_root) {
+#ifdef _WIN32
+    char path[512];
+    struct stat st;
+
+    snprintf(path, sizeof(path), "%s\\hadoop\\bin\\winutils.exe", project_root);
+    if (stat(path, &st) == 0) return 1;
+
+    //fall back to system install
+    snprintf(path, sizeof(path), "C:\\hadoop\\bin\\winutils.exe");
+    return stat(path, &st) == 0;
+#else
+    return 1;
+#endif
+}
 int main(int argc, char *argv[]){
     if (net_init() != 0) {
         fprintf(stderr, "Error: network initialisation failed.\n");
+        return 1;
+    }
+
+    char project_root[512];
+    get_project_root(project_root, sizeof(project_root));
+    if (!hadoop_available(project_root)) {
+        fprintf(stderr,
+            "Error: winutils.exe not found.\n"
+            "  1. Download hadoop binaries: https://github.com/cdarlint/winutils\n"
+            "  2. Place winutils.exe and hadoop.dll in: %s\\hadoop\\bin\\\n",
+            project_root
+        );
         return 1;
     }
 
@@ -404,21 +534,20 @@ int main(int argc, char *argv[]){
                     break;
                 case CMD_CLOSE:
                     if(!server_online()){
-                        fprintf(stderr, "Server is not online.");
+                        fprintf(stderr, "Server is not online.\n");
                         break;
                     }
                     rc=close_server();
                     break;
-                case CMD_REFRESH:
+                case CMD_RESTART:
                     if(!server_online()){
-                        fprintf(stderr, "Server is not online.");
+                        fprintf(stderr, "Server is not online.\n");
                         break;
                     }
-                    //rc = refresh_server();
-                    printf("not implemented");
+                    rc = restart_server();
                     break;
                 default:
-                    fprintf(stderr, "Unknown server command");
+                    fprintf(stderr, "Unknown server command\n");
             }   
             break;
         }
@@ -473,8 +602,13 @@ int main(int argc, char *argv[]){
         }
 
         const char *library = argv[1];
-        const char *book    = argv[2];
-        const char *ref     = (argc >= 4) ? argv[3] : NULL;
+        const char *book  = argv[2];
+        const char *ref = (argc >= 4) ? argv[3] : NULL;
+
+        if (strcasecmp(library, "quran") == 0 && argc == 3) { //Quran edge case     
+            ref = book;
+            book = "quran"; 
+        }
 
         bool  use_range = false;
         Range range;

@@ -5,9 +5,8 @@ Thumbs.db
 venv/
 .venv/
 .vscode/
-data/raw/*
-data/processed/*
-data/userdata/*
+data/*
+hadoop/bin/*
 
 !data/raw/.keep
 !data/processed/.keep

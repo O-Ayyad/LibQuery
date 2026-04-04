@@ -67,7 +67,25 @@ async def _handle_connection(
                 await writer.wait_closed()
             except Exception:
                 pass
+            
+def _configure_hadoop():
+    if sys.platform != "win32":
+        return
+    
+    project_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
+    )
 
+    hadoop_bin = os.path.join(project_root, "hadoop", "bin")
+    winutils   = os.path.join(hadoop_bin, "winutils.exe")
+
+    if not os.path.exists(winutils):
+        print(f"WARNING: winutils.exe not found at {winutils}", flush=True)
+        return
+
+    os.environ["HADOOP_HOME"] = os.path.join(project_root, "hadoop")
+    os.environ["PATH"]= hadoop_bin + os.pathsep + os.environ["PATH"]
+    print(f"Hadoop configured: {project_root}\\hadoop", flush=True)
 
 async def _run() -> None:
     global _semaphore
@@ -77,6 +95,14 @@ async def _run() -> None:
     addrs  = ", ".join(str(s.getsockname()) for s in server.sockets)
     print(f"LibQuery server listening on {addrs}")
     print(f"Max concurrent queries: {MAX_CONCURRENT_QUERIES}")
+
+    print("Initialising Spark...", flush=True)
+    _configure_hadoop()
+    print("Hadoop ready.", flush=True)
+    from query.engine import _get_spark
+    _get_spark() #init
+    print("Spark ready.", flush=True)
+
 
     async with server:
         await server.serve_forever()

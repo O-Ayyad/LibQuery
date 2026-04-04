@@ -16,7 +16,7 @@ import os
 import sys
 import time
 
-import itertools
+from ingestion.ingest import ingest
 import threading
 
 import requests
@@ -48,6 +48,38 @@ BIBLE_BOOK_NUMS: dict[str, int] = {
     "2 john": 63, "3 john": 64, "jude": 65, "revelation": 66,
 }
 
+#for sql query
+QURAN_SURAHS = {
+    1: "al-faatiha", 2: "al-baqara", 3: "aal-i-imraan", 4: "an-nisaa",
+    5: "al-maaida", 6: "al-anaam", 7: "al-araaf", 8: "al-anfaal",
+    9: "at-tawba", 10: "yunus", 11: "hud", 12: "yusuf",
+    13: "ar-rad", 14: "ibrahim", 15: "al-hijr", 16: "an-nahl",
+    17: "al-israa", 18: "al-kahf", 19: "maryam", 20: "taa-haa",
+    21: "al-anbiyaa", 22: "al-hajj", 23: "al-muminoon", 24: "an-noor",
+    25: "al-furqaan", 26: "ash-shuaraa", 27: "an-naml", 28: "al-qasas",
+    29: "al-ankaboot", 30: "ar-room", 31: "luqman", 32: "as-sajda",
+    33: "al-ahzaab", 34: "saba", 35: "faatir", 36: "yaseen",
+    37: "as-saaffaat", 38: "saad", 39: "az-zumar", 40: "ghafir",
+    41: "fussilat", 42: "ash-shura", 43: "az-zukhruf", 44: "ad-dukhaan",
+    45: "al-jaathiya", 46: "al-ahqaf", 47: "muhammad", 48: "al-fath",
+    49: "al-hujuraat", 50: "qaaf", 51: "adh-dhaariyat", 52: "at-tur",
+    53: "an-najm", 54: "al-qamar", 55: "ar-rahmaan", 56: "al-waaqia",
+    57: "al-hadid", 58: "al-mujaadila", 59: "al-hashr", 60: "al-mumtahana",
+    61: "as-saff", 62: "al-jumua", 63: "al-munaafiqoon", 64: "at-taghaabun",
+    65: "at-talaaq", 66: "at-tahrim", 67: "al-mulk", 68: "al-qalam",
+    69: "al-haaqqa", 70: "al-maaarij", 71: "nooh", 72: "al-jinn",
+    73: "al-muzzammil", 74: "al-muddaththir", 75: "al-qiyaama", 76: "al-insaan",
+    77: "al-mursalaat", 78: "an-naba", 79: "an-naaziaat", 80: "abasa",
+    81: "at-takwir", 82: "al-infitaar", 83: "al-mutaffifin", 84: "al-inshiqaaq",
+    85: "al-burooj", 86: "at-taariq", 87: "al-alaa", 88: "al-ghaashiya",
+    89: "al-fajr", 90: "al-balad", 91: "ash-shams", 92: "al-lail",
+    93: "ad-dhuhaa", 94: "ash-sharh", 95: "at-tin", 96: "al-alaq",
+    97: "al-qadr", 98: "al-bayyina", 99: "az-zalzala", 100: "al-aadiyaat",
+    101: "al-qaaria", 102: "at-takaathur", 103: "al-asr", 104: "al-humaza",
+    105: "al-fil", 106: "quraish", 107: "al-maaun", 108: "al-kawthar",
+    109: "al-kaafiroon", 110: "an-nasr", 111: "al-masad", 112: "al-ikhlaas",
+    113: "al-falaq", 114: "an-naas"
+}
 
 def _save(library: str, filename: str, data: dict) -> str:
     """Save a dict as JSON under data/raw/<library>/<filename>.json"""
@@ -76,7 +108,8 @@ def fetch_bible(book: str | None = None, send = Callable[[str], None]) -> list[s
         r.raise_for_status()
         
         send(f"Done fetching the Bible (KJV)")
-        saved.append(_save("bible", "full_kjv", r.json()))
+        saved.append(_save("bible", "bible", r.json()))
+        ingest("bible",send)
     else:
         book_key = book.lower()
         num = BIBLE_BOOK_NUMS.get(book_key)
@@ -91,6 +124,7 @@ def fetch_bible(book: str | None = None, send = Callable[[str], None]) -> list[s
 
         send(f"Done fetching the book of {book_key} (book #{num})")
         saved.append(_save("bible", book_key, r.json()))
+        ingest(f"bible:{book_key}",send)
 
     return saved
 
@@ -118,7 +152,7 @@ def fetch_quran(send = Callable[[str], None]) -> list[str]:
 
     send("Done fetching Quran in English")
     saved.append(_save("quran", "english_asad", r.json()))
-
+    ingest("quran",send) 
     return saved
 
 
