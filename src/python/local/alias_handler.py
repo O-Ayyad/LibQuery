@@ -10,7 +10,32 @@ ALIAS_FILE = os.path.join(PROJECT_ROOT, "data", "userdata", "aliases.json")
 
 RESERVED = {"all", "host", "close", "help", "h", "alias", "ping", "download", "add","","restart","target",}
 
+HARDCODED_ALIASES: dict[str, str] = {
 
+    "songofsolomon":  "songofsongs",
+    "song":           "songofsongs",
+    "solomon":        "songofsongs",
+
+    "1stjohn": "1john",
+    "2ndjohn": "2john",
+    "3rdjohn": "3john",
+    "1stsamuel": "1samuel",
+    "2ndsamuel": "2samuel",
+    "1stkings": "1kings",
+    "2ndkings": "2kings",
+    "1stchronicles":"1chronicles",
+    "2ndchronicles":"2chronicles",
+    "1stcorinthians":"1corinthians",
+    "2ndcorinthians":"2corinthians",
+    "1stthessalonians":"1thessalonians",
+    "2ndthessalonians":"2thessalonians",
+    "1sttimothy":"1timothy",
+    "2ndtimothy":"2timothy",
+    "1stpeter": "1peter",
+    "2ndpeter":"2peter",
+    "psalms": "psalms",
+    "psalm":"psalms",
+}
 def load() -> dict:
     if not os.path.exists(ALIAS_FILE):
         return {}
@@ -40,6 +65,10 @@ def cmd_add(target: str, alias_name: str) -> str:
 
     if alias_name in aliases:
         return f"Alias '{alias_name}' already exists for '{aliases[alias_name]}'."
+    
+    if alias_name in HARDCODED_ALIASES:
+        return f"Error: '{alias_name}' is a builtin alias for '{HARDCODED_ALIASES[alias_name]}' and cannot be overwritten."
+
 
     aliases[alias_name] = target
     save(aliases)
@@ -62,6 +91,8 @@ def cmd_rm(target: str) -> str:
 
 
 def cmd_resolve(alias_name: str) -> str:
+    if alias_name in HARDCODED_ALIASES:
+        return HARDCODED_ALIASES[alias_name]
     aliases = load()
     return aliases.get(alias_name, alias_name)  # falls back to original if no alias
 

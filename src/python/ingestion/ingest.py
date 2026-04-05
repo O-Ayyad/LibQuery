@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Iterator
 import unicodedata
 import re
+import shutil
 
 
 
@@ -79,7 +80,7 @@ class Bible(Library):
             books = [data]  
 
         for book_obj in books:
-            book_name = book_obj["name"].lower()
+            book_name = book_obj["name"].lower().replace(" ", "")
             if book_filter and book_name != book_filter:
                 continue
             for ch in book_obj.get("chapters", []):
@@ -193,7 +194,10 @@ def _write_parquet(rows: list[Row], library: str, book: str, send=Callable[[str]
     )
 
     out_dir = os.path.join(PARQUET_DIR, library, book)
+    if os.path.exists(out_dir):
+        shutil.rmtree(out_dir)
     os.makedirs(out_dir, exist_ok=True)
+
     pq.write_to_dataset(
         table,
         root_path=out_dir,
@@ -204,20 +208,12 @@ def _write_parquet(rows: list[Row], library: str, book: str, send=Callable[[str]
     return out_dir
 
 
-def ingest(target: str = "all",send=Callable[[str],None]) -> list[str]:
-    """
-    Args:
-        target: "all"  every registered library
-                "<library>"  full library, e.g. "bible", "quran"
-                "<library>:<book>" single book,  e.g. "bible:genesis"
-        List of Parquet output dirs
-    """
-    target= target.lower().strip()
+def ingest(target: str = "all", send=Callable[[str], None]) -> list[str]:
+    target = target.lower().strip()
     parts = target.split(":", 1)
     library_key = parts[0]
     book_filter = parts[1] if len(parts) == 2 else None
 
-    # resolve which libraries to run
     if library_key == "all":
         if book_filter:
             raise ValueError("Cannot use book filter with 'all'.")
@@ -235,27 +231,23 @@ def ingest(target: str = "all",send=Callable[[str],None]) -> list[str]:
     out_dirs: list[str] = []
 
     for lib in targets:
-        lib.validate_files()
-
         current_book: str | None = None
         book_rows: list[Row] = []
 
         for row in lib.parse(book_filter):
             if row["book"] != current_book:
                 if book_rows:
-                    out_dirs.append(_write_parquet(book_rows, lib.name, current_book,send))
+                    out_dirs.append(_write_parquet(book_rows, lib.name, current_book, send))
                 current_book = row["book"]
-                book_rows    = []
+                book_rows = []
             book_rows.append(row)
 
         if book_rows:
-            out_dirs.append(_write_parquet(book_rows, lib.name, current_book,send))
+            out_dirs.append(_write_parquet(book_rows, lib.name, current_book, send))
 
         if book_filter and not out_dirs:
-            raise ValueError(
-                send(f"Book '{book_filter}' not found in {lib.name}. "
-                "Check spelling.")
-            )
+            send(f"Book '{book_filter}' not found in {lib.name}. Check spelling.")
+
     return out_dirs
 
 if __name__ == "__main__":

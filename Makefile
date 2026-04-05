@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2
+CFLAGS = -Wall -Wextra -O2 -Isrc/c
 SRCS = src/c/main.c src/c/parser.c
 TARGET = libquery
 

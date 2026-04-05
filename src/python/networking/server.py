@@ -15,7 +15,10 @@ import json
 import os
 import sys
 from typing import Any
-
+import hashlib
+import time
+import signal
+import networking.registry as registry
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from config.settings import HOST, PORT, MAX_CONCURRENT_QUERIES
 from networking.router import handle
@@ -23,6 +26,44 @@ from networking.router import handle
 
 _semaphore: asyncio.Semaphore | None = None
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+TOKEN_FILE = os.path.join(PROJECT_ROOT, "data", "serverdata", "admin.token")
+
+def generate_admin_token() -> str:
+    os.makedirs(os.path.dirname(TOKEN_FILE), exist_ok=True)
+    start_time = time.time()
+    raw = f"{start_time}".encode() + os.urandom(32)
+    token = hashlib.sha256(raw).hexdigest()
+
+    with open(TOKEN_FILE, "w") as f:
+        f.write(token)
+
+    if sys.platform != "win32":
+        os.chmod(TOKEN_FILE, 0o600)
+
+    print(f"Admin token created.", flush=True)
+    return token
+
+def destroy_admin_token() -> None:
+    try:
+        if os.path.exists(TOKEN_FILE):
+            os.remove(TOKEN_FILE)
+            print("Admin token destroyed.", flush=True)
+    except Exception as e:
+        print(f"WARNING: could not destroy token file: {e}", flush=True)
+        
+def valid_token(token: str) -> bool:
+    try:
+        with open(TOKEN_FILE, "r") as f:
+            saved_token = f.read().strip()
+        return token == saved_token
+    except OSError:
+        return False
+
+def _handle_signal(sig, frame) -> None:
+    print(f"\nSignal {sig} received, shutting down...", flush=True)
+    destroy_admin_token()
+    sys.exit(0)
 async def _async_write(writer: asyncio.StreamWriter, msg: str) -> None:
     writer.write(msg.encode("utf-8"))
     await writer.drain()
@@ -88,54 +129,92 @@ def _configure_hadoop():
     print(f"Hadoop configured: {project_root}\\hadoop", flush=True)
 import subprocess
 
-def _configure_java() -> bool:
-    """Find and configure Java 17. Returns True if successful."""
-    
-    # Common Java 17 install locations on Windows
-    candidates = [
-        r"C:\Program Files\Eclipse Adoptium",
-        r"C:\Program Files\Microsoft",
-        r"C:\Program Files\Java",
-        r"C:\Program Files\Amazon Corretto",
-    ]
+def configure_java() -> bool:
+    import pyspark
+    spark_version = tuple(int(x) for x in pyspark.__version__.split(".")[:2])
+    java_version = "17" if spark_version >= (3, 3) else "11"
+    print(f"PySpark {pyspark.__version__} detected, looking for Java {java_version}...", flush=True)
+
+    is_windows = sys.platform == "win32"
+
+    if is_windows:
+        candidates = [
+            r"C:\Program Files\Eclipse Adoptium",
+            r"C:\Program Files\Microsoft",
+            r"C:\Program Files\Java",
+            r"C:\Program Files\Amazon Corretto",
+        ]
+        java_exe = "java.exe"
+    else:
+        candidates = [
+            "/usr/lib/jvm",
+            "/usr/java",
+            "/opt/java",
+            "/opt/jdk"]
+        java_exe = "java"
 
     for base in candidates:
         if not os.path.exists(base):
             continue
         for entry in os.listdir(base):
-            if "17" in entry:
+            if java_version in entry:
                 java_home = os.path.join(base, entry)
-                java_bin = os.path.join(java_home, "bin", "java.exe")
+                java_bin = os.path.join(java_home, "bin", java_exe)
                 if os.path.exists(java_bin):
                     os.environ["JAVA_HOME"] = java_home
                     os.environ["PATH"] = os.path.join(java_home, "bin") + os.pathsep + os.environ["PATH"]
-                    print(f"Java 17 found: {java_home}", flush=True)
+                    print(f"Java {java_version} found: {java_home}", flush=True)
                     return True
 
+    
     try:
-        result = subprocess.run(
-            ["where", "java"], capture_output=True, text=True
-        )
+        which_cmd = ["where", "java"] if is_windows else ["which", "-a", "java"]
+        result = subprocess.run(which_cmd, capture_output=True, text=True)
         for path in result.stdout.strip().splitlines():
+            path = path.strip()
+            if not path:
+                continue
             try:
-                version = subprocess.run(
+                version_out = subprocess.run(
                     [path, "-version"], capture_output=True, text=True
                 )
-                if "17" in version.stderr:
+                if java_version in version_out.stderr:
                     java_home = os.path.dirname(os.path.dirname(path))
                     os.environ["JAVA_HOME"] = java_home
                     os.environ["PATH"] = os.path.dirname(path) + os.pathsep + os.environ["PATH"]
-                    print(f"Java 17 found: {java_home}", flush=True)
+                    print(f"Java {java_version} found: {java_home}", flush=True)
                     return True
             except Exception:
                 continue
     except Exception:
         pass
 
+    if not is_windows:
+        try:
+            result = subprocess.run(
+                ["update-alternatives", "--list", "java"],
+                capture_output=True, text=True
+            )
+            for path in result.stdout.strip().splitlines():
+                if java_version in path and os.path.exists(path):
+                    java_home = os.path.dirname(os.path.dirname(path))
+                    os.environ["JAVA_HOME"] = java_home
+                    os.environ["PATH"] = os.path.dirname(path) + os.pathsep + os.environ["PATH"]
+                    print(f"Java {java_version} found via update-alternatives: {java_home}", flush=True)
+                    return True
+        except Exception:
+            pass
+
     return False
 async def _run() -> None:
     global _semaphore
     _semaphore = asyncio.Semaphore(MAX_CONCURRENT_QUERIES)
+
+    generate_admin_token()
+
+    if sys.platform != "win32":
+        signal.signal(signal.SIGTERM, _handle_signal)
+        signal.signal(signal.SIGHUP,  _handle_signal)
 
     print("Initialising Spark...", flush=True)
     _configure_hadoop()
@@ -144,15 +223,28 @@ async def _run() -> None:
     _get_spark() #init
     print("Spark ready.", flush=True)
 
-    if not _configure_java():
-        print("ERROR: Java 17 not found.", flush=True)
-        print("       Download it from: https://adoptium.net/temurin/releases/?version=17", flush=True)
-        print("       Install it, then restart the server.", flush=True)
+    if not configure_java():
+        import pyspark
+        spark_version = tuple(int(x) for x in pyspark.__version__.split(".")[:2])
+        java_version = "17" if spark_version >= (3, 3) else "11"
+        install_url = f"https://adoptium.net/temurin/releases/?version={java_version}"
+
+        print(f"ERROR: Java {java_version} not found.", flush=True)
+        print(f"       Download it from: {install_url}", flush=True)
+        if sys.platform != "win32":
+            print(f"       Or install via package manager.", flush=True)
+        print(f"       Then restart the server.", flush=True)
         sys.exit(1)
+
+    registry.scan_downloaded_books()
+    print("Registry initialized")
+    print(registry.ls())    
     server = await asyncio.start_server(_handle_connection, HOST, PORT)
     addrs  = ", ".join(str(s.getsockname()) for s in server.sockets)
     print(f"LibQuery server listening on {addrs}")
     print(f"Max concurrent queries: {MAX_CONCURRENT_QUERIES}")
+
+    print(f"Server is ready and running!")
 
     async with server:
         await server.serve_forever()

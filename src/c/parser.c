@@ -7,12 +7,6 @@
 #include "parser_funcs.h"
 
 
-bool is_directory(const char *path)
-{
-    struct stat info;
-    return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
-}
-
 // Check if a chapter/verse falls inside the requested range
 bool in_range(int chapter, int verse, Range range)
 {
@@ -78,7 +72,7 @@ bool parse_position(const char *input, Position *out)
 }
 
 // Parse a full reference like "1", "2:15", "1-3", "2:15-3:19"
-bool parse_range(const char *input, Range *out)
+bool parse_range(const char *input, Range *out, bool single_chapter_library)
 {
     // Find the dash
     const char *dash = strchr(input, '-');
@@ -100,11 +94,22 @@ bool parse_range(const char *input, Range *out)
         memcpy(end_str, dash + 1, (size_t)end_len);
         end_str[end_len] = '\0';
 
-        if (!parse_position(start_str, &out->start) ||
-            !parse_position(end_str, &out->end)) {
+        if (!parse_position(start_str, &out->start)) {
             return false;
         }
+        if (single_chapter_library &&
+            out->start.verse != NO_VERSE &&
+            strchr(end_str, ':') == NULL) {
+            for (int i = 0; end_str[i]; i++)
+                if (!isdigit((unsigned char)end_str[i])) return false;
 
+            out->end.chapter = out->start.chapter;
+            out->end.verse = atoi(end_str);
+            if (out->end.verse <= 0) return false;
+
+        } else {
+            if (!parse_position(end_str, &out->end)) return false;
+        }
         // validate order
         if (out->end.chapter < out->start.chapter ||
            (out->end.chapter == out->start.chapter &&

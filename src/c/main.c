@@ -13,6 +13,10 @@
  *   libquery ping                         Check server is alive
  */
 
+#ifndef _WIN32
+    #define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -24,22 +28,19 @@
 #include "parser_funcs.h"
 
 #define SERVER_PORT 9237
-
-#define LINE_WIDTH 200
+#define LINE_WIDTH  200
 
 #ifdef _WIN32
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #define CLOSE_SOCKET(s) closesocket(s)
-  typedef SOCKET sock_t;
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #define CLOSE_SOCKET(s) closesocket(s)
+    typedef SOCKET sock_t;
 #else
-  #include <sys/socket.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
-  #define CLOSE_SOCKET(s) close(s)
-  typedef int sock_t;
+    #include <sys/socket.h>
+    #include <arpa/inet.h>
+    #define CLOSE_SOCKET(s) close(s)
+    typedef int sock_t;
 #endif
-
 
 typedef enum { //Requires authentication
     CMD_CLOSE,
@@ -87,6 +88,59 @@ void get_project_root(char *out, size_t size) {
     char *last = strrchr(out, '/');
     if (last) *last = '\0';
 #endif
+}
+
+#define TOKEN_SUBPATH  "data/serverdata/admin.token"
+#define TOKEN_LEN  64
+
+static char token_path[4096];
+
+
+void resolve_token_path(){
+    char path[512] = "";
+
+    get_project_root(path, sizeof(path));
+
+#ifdef _WIN32
+    snprintf(token_path, sizeof(token_path),
+             "%s\\data\\serverdata\\admin.token", path);
+#else
+    snprintf(token_path, sizeof(token_path),
+             "%s/data/serverdata/admin.token", path);
+#endif
+
+}
+char *load_admin_token(void)
+{
+    FILE *f = fopen(token_path, "r");
+    if (!f) {
+        fprintf(stderr, "Error: could not open token file: %s\n", token_path);
+        return NULL;
+    }
+
+    char *token = malloc(TOKEN_LEN + 1);
+    if (!token) {
+        fclose(f);
+        return NULL;
+    }
+
+    if (!fgets(token, TOKEN_LEN + 1, f)) {
+        fprintf(stderr, "Error: could not read token\n");
+        fclose(f);
+        free(token);
+        return NULL;
+    }
+    fclose(f);
+
+    token[strcspn(token, "\r\n")] = '\0';
+
+    if (strlen(token) != TOKEN_LEN) {
+        fprintf(stderr, "Error: token malformed (len=%zu)\n", strlen(token));
+        free(token);
+        return NULL;
+    }
+
+    return token;
 }
 
 char* get_ip() {
@@ -156,78 +210,29 @@ void print_verse(int chapter, int verse, const char *text) {
     }
     printf("\n");
 }
-//Send an print but no error message. Used only to check if server is online or not
-int send_and_print_quiet(const char *payload){ 
-    const char *host = get_ip();
-    if (!host) host = "127.0.0.1";
-    sock_t s;
-    struct sockaddr_in addr;
-    int n;
-
-    s =socket(AF_INET, SOCK_STREAM, 0);
-    if ((int)s < 0) {
-        return 1;
-    }
-
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(SERVER_PORT);
-    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
-        CLOSE_SOCKET(s);
-        return 1;
-    }
-    if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        CLOSE_SOCKET(s);
-        return 1;
-    }
-
-    send(s, payload, (int)strlen(payload), 0);
-
-
-    #ifndef _WIN32
-    shutdown(s, SHUT_WR);
-    #endif
-
-    char buf[65536];
-    int  buf_len = 0;
-
-    while ((n = recv(s, buf + buf_len, sizeof(buf) - buf_len - 1, 0)) > 0) {
-        buf_len += n;
-        buf[buf_len] = '\0';
-
-        char *line_start = buf;
-        char *newline;
-
-        while ((newline = strchr(line_start, '\n')) != NULL) {
-            *newline = '\0';
-            int chapter, verse;
-            char text[4096];
-            if (sscanf(line_start, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
-                print_verse(chapter, verse, text);
-
-            line_start = newline + 1;
-        }
-
-        buf_len = buf_len - (line_start - buf);
-        memmove(buf, line_start, buf_len);
-    }
-    CLOSE_SOCKET(s);
-    return 0;
-}
 
 
 // Send the payload to the server and prints the return
 // Returns 0 on success, 1 on failure.
-int send_and_print(const char *payload){
-    const char *host = get_ip();
+#define SEND_FLAG_LOCAL 1
+#define SEND_FLAG_QUIET 2
+#define SEND_FLAG_BOTH 3
+
+static int send_and_print_impl(const char *payload, int flags)
+{
+    const int use_local = flags & SEND_FLAG_LOCAL;
+    const int quiet = flags & SEND_FLAG_QUIET;
+
+    const char *host = use_local ? "127.0.0.1" : get_ip();
     if (!host) host = "127.0.0.1";
+
     sock_t s;
     struct sockaddr_in addr;
     int n;
 
-    s =socket(AF_INET, SOCK_STREAM, 0);
+    s = socket(AF_INET, SOCK_STREAM, 0);
     if ((int)s < 0) {
-        fprintf(stderr, "Error: could not create socket.\n");
+        if (!quiet) fprintf(stderr, "Error: could not create socket.\n");
         return 1;
     }
 
@@ -235,27 +240,26 @@ int send_and_print(const char *payload){
     addr.sin_family = AF_INET;
     addr.sin_port   = htons(SERVER_PORT);
     if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
-        fprintf(stderr, "Error: invalid server address.\n");
+        if (!quiet) fprintf(stderr, "Error: invalid server address.\n");
         CLOSE_SOCKET(s);
         return 1;
     }
     if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        
-        fprintf(stderr,
-            "Error: Cannot connect to LibQuery server at %s:%d.\n"
-            "       Is the server running?  Start it with:\n"
-            "       libquery host\n",
-            host, SERVER_PORT);
+        if (!quiet)
+            fprintf(stderr,
+                "Error: Cannot connect to LibQuery server at %s:%d.\n"
+                "       Is the server running?  Start it with:\n"
+                "       libquery host\n",
+                host, SERVER_PORT);
         CLOSE_SOCKET(s);
         return 1;
     }
 
     send(s, payload, (int)strlen(payload), 0);
 
-
-    #ifndef _WIN32
+#ifndef _WIN32
     shutdown(s, SHUT_WR);
-    #endif
+#endif
 
     char buf[65536];
     int  buf_len = 0;
@@ -273,17 +277,17 @@ int send_and_print(const char *payload){
             char text[4096];
             if (sscanf(line_start, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
                 print_verse(chapter, verse, text);
-            else if (*line_start != '\0')
+            else if (!quiet && *line_start != '\0')
                 printf("%s\n", line_start);
 
             line_start = newline + 1;
         }
 
-        buf_len = buf + buf_len - line_start;
+        buf_len = (int)(buf + buf_len - line_start);
         memmove(buf, line_start, buf_len);
     }
 
-    if (buf_len > 0) {
+    if (!quiet && buf_len > 0) {
         buf[buf_len] = '\0';
         int chapter, verse;
         char text[4096];
@@ -292,14 +296,32 @@ int send_and_print(const char *payload){
         else
             printf("%s\n", buf);
     }
+
     CLOSE_SOCKET(s);
     return 0;
+}
+//Only for local commands
+int send_and_print_local(const char *payload) {
+    return send_and_print_impl(payload, SEND_FLAG_LOCAL);
+}
+//Send an print but no error message. Used only to check if server is online or not
+int send_and_print_quiet(const char *payload) {
+    return send_and_print_impl(payload, SEND_FLAG_QUIET);
+}
+int send_and_print_quiet_local(const char* payload){
+     return send_and_print_impl(payload, SEND_FLAG_BOTH);
+}
+int send_and_print(const char *payload) {
+    return send_and_print_impl(payload, 0);
 }
 int ping(bool quiet) {
     if(quiet){
         return send_and_print_quiet("{\"cmd\":\"ping\",\"flags\":[\"quiet\"]}");
     }
     return send_and_print("{\"cmd\":\"ping\"}");
+}
+int ping_local() {
+    return send_and_print_quiet_local("{\"cmd\":\"ping\",\"flags\":[\"quiet\"]}");    
 }
 int server_online(){
     return !ping(true);
@@ -309,20 +331,20 @@ FILE* run_python(char* path, char* args) {
     char exe_path[4096];
     char command[512];
 
+#ifdef _WIN32
     GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
     char* slash = strrchr(exe_path, '\\');
     if (slash) *slash = '\0';
-
-#ifdef _WIN32
     snprintf(command, sizeof(command), "py \"%s\\%s\" %s", exe_path, path, args ? args : "");
 #else
     ssize_t count = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
     if (count != -1) exe_path[count] = '\0';
-    slash = strrchr(exe_path, '/');
+    char* slash = strrchr(exe_path, '/');
     if (slash) *slash = '\0';
     snprintf(command, sizeof(command), "python3 \"%s/%s\" %s", exe_path, path, args ? args : "");
 #endif
 
+    return popen(command, "r");
     return popen(command, "r");
 }
 int host_server() {
@@ -330,7 +352,8 @@ int host_server() {
         fprintf(stderr, "Error: Server is already running.\n");
         return 1;
     }
-    char exe_path[MAX_PATH];
+    printf("Starting server.\n");
+    char exe_path[4096];
     char command[1024];
     
 #ifdef _WIN32
@@ -370,14 +393,57 @@ snprintf(
         fprintf(stderr, "Error: could not open terminal to host server.\n");
         return -2;
     }
-    fprintf(stdout, "Server hosted successfully on port %d", SERVER_PORT);
+
+    fflush(stdout);
+
+    printf("Waiting for server to respond...\n\n");
+
+    int waited  = 0;
+    int timeout = 30;
+    int interval = 500;
+
+    while (waited < timeout * 1000) {
+        if (ping_local() == 0)
+            break;
+
+    #ifdef _WIN32
+        Sleep(interval);
+    #else
+        usleep(interval * 1000);
+    #endif
+
+        waited += interval;
+
+        if (waited % 5000 == 0)
+            printf("Still waiting... (%ds)\n", waited / 1000);
+    }
+
+    if (waited >= timeout * 1000) {
+        fprintf(stderr,
+            "Error: server did not respond within %d seconds.\n"
+            "       It may have crashed on startup.\n"
+            "       Check the server terminal window for error output.\n",
+            timeout);
+        return 1;
+    }
+        fprintf(stdout, "Server hosted locally on port %d\n", SERVER_PORT);
+
     return 0;
 }
-int close_server(void){
-    if(server_online()){
-        return send_and_print("{\"cmd\":\"close\"}");
-    }
-    return 1;
+int close_server(void)
+{
+    if (!server_online())
+        return 1;
+
+    char *token = load_admin_token();
+    if (!token) return 1;
+
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+        "{\"cmd\":\"close\",\"token\":\"%s\"}", token);
+
+    free(token);
+    return send_and_print_local(buf);
 }
 int restart_server(){
     int a = close_server();
@@ -387,14 +453,14 @@ int restart_server(){
     sleep(2);
     #endif
     int b = host_server();
-    return a && b;
+    return a || b;
 }
 
 //Payload builders
-
 int download(const char *library, const char *book){
     if(!server_online()){
         fprintf(stderr,"Server is not online\n");
+        return 1;
     }
     char payload[512];
     if (book)
@@ -555,6 +621,7 @@ int hadoop_available(char *project_root) {
 #endif
 }
 int main(int argc, char *argv[]){
+  
     if (net_init() != 0) {
         fprintf(stderr, "Error: network initialisation failed.\n");
         return 1;
@@ -588,9 +655,6 @@ int main(int argc, char *argv[]){
                 fprintf(stderr, "Unknown command");
                 break;
             }
-            /*if (!authenicate()){
-                break;
-            }*/
             switch(command){                  
                 case CMD_HOST:
                     rc= host_server();
@@ -657,9 +721,17 @@ int main(int argc, char *argv[]){
                 if (result) printf("%s\n", result);
                 break;
             }
-            
-            char *result = alias(&argv[2],argc-2);
-            if (result) printf("%s\n", result);
+            else if(argc >= 4){
+                fprintf(stderr,"Invalid arguments");
+                fprintf(stderr,
+                    "Usage:\n"
+                    "  libquery target                    Prints current target IP\n"
+                    "  libquery target <IP Address>       Sets target IP Address\n"
+                    "  libquery target rm/remove          Removes target and defaults to localhost 127.0.0.1\n\n"
+                    "  libquery target local/localhost    Sets target to localhost"
+                );
+                return 1;
+            }
             break;
         }
         if (argc == 2 && (strcasecmp(argv[1], "help") == 0 ||
@@ -678,7 +750,7 @@ int main(int argc, char *argv[]){
             const char *book = (argc >= 4) ? argv[3] : NULL;
             if (!library) {
                 fprintf(stderr, "Error: specify a library, e.g. 'libquery download bible'\n");
-                rc = 1;
+                rc = 1; 
                 break;
             }
             rc = download(library, book);
@@ -696,17 +768,18 @@ int main(int argc, char *argv[]){
         const char *book  = argv[2];
         const char *ref = (argc >= 4) ? argv[3] : NULL;
 
-        if (strcasecmp(library, "quran") == 0 && argc == 3) { //Quran edge case     
-            ref = book;
-            book = "quran"; 
+        if (strcasecmp(library, "quran") == 0) {
+            ref  = (argc >= 3) ? argv[2] : NULL;
+            book = "quran";
         }
 
         bool  use_range = false;
         Range range;
         memset(&range, 0, sizeof(range));
+        bool is_single_chapter_lib = (strcasecmp(library, "quran") == 0);
 
         if (ref) {
-            if (!parse_range(ref, &range)) {
+            if (!parse_range(ref, &range, is_single_chapter_lib)) {
                 fprintf(stderr, "Error: cannot parse reference '%s'.\n", ref);
                 rc = 1;
                 break;

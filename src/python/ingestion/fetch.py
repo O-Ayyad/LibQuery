@@ -17,7 +17,7 @@ import sys
 import time
 
 from ingestion.ingest import ingest
-import threading
+from networking.registry import is_downloaded, missing_books, is_known, LIBRARY_BOOKS
 
 import requests
 
@@ -31,23 +31,25 @@ from typing import Callable
 BIBLE_BOOK_NUMS: dict[str, int] = {
     "genesis": 1, "exodus": 2, "leviticus": 3, "numbers": 4,
     "deuteronomy": 5, "joshua": 6, "judges": 7, "ruth": 8,
-    "1 samuel": 9, "2 samuel": 10, "1 kings": 11, "2 kings": 12,
-    "1 chronicles": 13, "2 chronicles": 14, "ezra": 15, "nehemiah": 16,
+    "1samuel": 9, "2samuel": 10, "1kings": 11, "2kings": 12,
+    "1chronicles": 13, "2chronicles": 14, "ezra": 15, "nehemiah": 16,
     "esther": 17, "job": 18, "psalms": 19, "proverbs": 20,
-    "ecclesiastes": 21, "song of solomon": 22, "isaiah": 23, "jeremiah": 24,
+    "ecclesiastes": 21, "songofsongs": 22, "isaiah": 23, "jeremiah": 24,
     "lamentations": 25, "ezekiel": 26, "daniel": 27, "hosea": 28,
     "joel": 29, "amos": 30, "obadiah": 31, "jonah": 32, "micah": 33,
     "nahum": 34, "habakkuk": 35, "zephaniah": 36, "haggai": 37,
     "zechariah": 38, "malachi": 39, "matthew": 40, "mark": 41,
     "luke": 42, "john": 43, "acts": 44, "romans": 45,
-    "1 corinthians": 46, "2 corinthians": 47, "galatians": 48,
+    "1corinthians": 46, "2corinthians": 47, "galatians": 48,
     "ephesians": 49, "philippians": 50, "colossians": 51,
-    "1 thessalonians": 52, "2 thessalonians": 53, "1 timothy": 54,
-    "2 timothy": 55, "titus": 56, "philemon": 57, "hebrews": 58,
-    "james": 59, "1 peter": 60, "2 peter": 61, "1 john": 62,
-    "2 john": 63, "3 john": 64, "jude": 65, "revelation": 66,
+    "1thessalonians": 52, "2 thessalonians": 53, "1 timothy": 54,
+    "2timothy": 55, "titus": 56, "philemon": 57, "hebrews": 58,
+    "james": 59, "1 peter": 60, "2 peter": 61, "1john": 62,
+    "2john": 63, "3john": 64, "jude": 65, "revelation": 66,
 }
-
+BOOK_NAME_REMAP: dict[str, str] = {
+    "songofsolomon": "songofsongs",
+}
 #for sql query
 QURAN_SURAHS = {
     1: "al-faatiha", 2: "al-baqara", 3: "aal-i-imraan", 4: "an-nisaa",
@@ -91,57 +93,76 @@ def _save(library: str, filename: str, data: dict) -> str:
     print(f"  Saved to {out_path}")
     return out_path
 
-
-def fetch_bible(book: str | None = None, send = Callable[[str], None]) -> list[str]:
+def fetch_bible(book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
 
     #Fetch one Bible book or the full KJV.
     #Returns list of saved file paths.
 
     cfg = LIBRARY_CONFIG["bible"]
-    base = cfg["base_url"]
-    saved = []
+    base = cfg["base_url"] 
+    saved: list[str] = []
 
     if book is None:
-        # Full bible
-        send("Fetching full Bible (KJV)...\n")
-        r = requests.get(f"{base}.json", timeout=30)
+        # Full Bible
+        if is_downloaded("bible", "bible"):
+            send("Bible is already fully downloaded.")
+            return []
+
+        send("Fetching full Bible (KJV)...")
+        r = requests.get(f"{base}.json", timeout=60)
         r.raise_for_status()
-        
-        send(f"Done fetching the Bible (KJV)")
-        saved.append(_save("bible", "bible", r.json()))
-        ingest("bible",send)
+
+        saved_path = _save("bible", "bible", r.json())
+        saved.append(saved_path)
+        ingest("bible", send)
+        send(f"Bible download complete -> {saved_path}")
+
     else:
-        book_key = book.lower()
-        num = BIBLE_BOOK_NUMS.get(book_key)
-        if num is None:
-            msg = f"Unknown Bible book: '{book}'"
+        # Single book
+        book_key = book.lower().replace(" ", "")
+        book_key = BOOK_NAME_REMAP.get(book_key, book_key)
+
+        if not is_known("bible", book_key):
+            msg = f"Unknown Bible book: '{book_key}'.\n"
             send(msg)
             raise ValueError(msg)
-        
-        send(f"Fetching Bible / {book_key} (book #{num})...\n")
+
+        if is_downloaded("bible", book_key):
+            send(f"{book_key} is already downloaded.")
+            return []
+
+        num = BIBLE_BOOK_NUMS.get(book_key)
+        if num is None:
+            msg = f"Unknown Bible book: '{book_key}'"
+            send(msg)
+            raise ValueError(msg)
+
+        send(f"Fetching Bible / {book_key} (book #{num})...")
         r = requests.get(f"{base}/{num}.json", timeout=30)
         r.raise_for_status()
 
-        send(f"Done fetching the book of {book_key} (book #{num})")
-        saved.append(_save("bible", book_key, r.json()))
-        ingest(f"bible:{book_key}",send)
+        saved_path = _save("bible", book_key, r.json())
+        saved.append(saved_path)
+        ingest(f"bible:{book_key}", send)
+        send(f"Book '{book_key}' download complete -> {saved_path}")
 
     return saved
 
+# Fetch Arabic and English Quran and save both
+def fetch_quran(send = Callable[[str], None]):
+    if is_downloaded("quran"):
+        send("Quran fully downloaded.")
+        return
 
-def fetch_quran(send = Callable[[str], None]) -> list[str]:
-    # Fetch Arabic and English Quran and save both
     cfg = LIBRARY_CONFIG["quran"]
-    saved = []
+
 
     send("Fetching Quran (Arabic)...\n")
 
     r = requests.get(cfg["arabic_url"], timeout=60)
     r.raise_for_status()
-
+    _save("quran", "arabic", r.json())
     send("Done fetching Quran in Arabic")
-
-    saved.append(_save("quran", "arabic", r.json()))
 
     time.sleep(1)  # rate limit
 
@@ -149,11 +170,9 @@ def fetch_quran(send = Callable[[str], None]) -> list[str]:
     r = requests.get(cfg["english_url"], timeout=60)
     r.raise_for_status()
 
-
+    _save("quran", "english_asad", r.json())
     send("Done fetching Quran in English")
-    saved.append(_save("quran", "english_asad", r.json()))
     ingest("quran",send) 
-    return saved
 
 
 def fetch(library: str, book: str | None = None, send = Callable[[str], None]) -> list[str]:
