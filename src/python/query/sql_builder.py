@@ -40,7 +40,7 @@ def build_query(
             conditions.append(f"verse >= {sv}")
         elif end_verse != NO_VERSE:
             conditions.append(f"verse <= {end_verse}")
-        # else whole chapter — no verse filter
+        # else whole chapter - no verse filter
     else:
         after_start = (
             f"(chapter > {start_chapter} OR "

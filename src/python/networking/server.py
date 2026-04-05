@@ -86,15 +86,56 @@ def _configure_hadoop():
     os.environ["HADOOP_HOME"] = os.path.join(project_root, "hadoop")
     os.environ["PATH"]= hadoop_bin + os.pathsep + os.environ["PATH"]
     print(f"Hadoop configured: {project_root}\\hadoop", flush=True)
+import subprocess
 
+def _configure_java() -> bool:
+    """Find and configure Java 17. Returns True if successful."""
+    
+    # Common Java 17 install locations on Windows
+    candidates = [
+        r"C:\Program Files\Eclipse Adoptium",
+        r"C:\Program Files\Microsoft",
+        r"C:\Program Files\Java",
+        r"C:\Program Files\Amazon Corretto",
+    ]
+
+    for base in candidates:
+        if not os.path.exists(base):
+            continue
+        for entry in os.listdir(base):
+            if "17" in entry:
+                java_home = os.path.join(base, entry)
+                java_bin = os.path.join(java_home, "bin", "java.exe")
+                if os.path.exists(java_bin):
+                    os.environ["JAVA_HOME"] = java_home
+                    os.environ["PATH"] = os.path.join(java_home, "bin") + os.pathsep + os.environ["PATH"]
+                    print(f"Java 17 found: {java_home}", flush=True)
+                    return True
+
+    try:
+        result = subprocess.run(
+            ["where", "java"], capture_output=True, text=True
+        )
+        for path in result.stdout.strip().splitlines():
+            try:
+                version = subprocess.run(
+                    [path, "-version"], capture_output=True, text=True
+                )
+                if "17" in version.stderr:
+                    java_home = os.path.dirname(os.path.dirname(path))
+                    os.environ["JAVA_HOME"] = java_home
+                    os.environ["PATH"] = os.path.dirname(path) + os.pathsep + os.environ["PATH"]
+                    print(f"Java 17 found: {java_home}", flush=True)
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return False
 async def _run() -> None:
     global _semaphore
     _semaphore = asyncio.Semaphore(MAX_CONCURRENT_QUERIES)
-
-    server = await asyncio.start_server(_handle_connection, HOST, PORT)
-    addrs  = ", ".join(str(s.getsockname()) for s in server.sockets)
-    print(f"LibQuery server listening on {addrs}")
-    print(f"Max concurrent queries: {MAX_CONCURRENT_QUERIES}")
 
     print("Initialising Spark...", flush=True)
     _configure_hadoop()
@@ -103,6 +144,15 @@ async def _run() -> None:
     _get_spark() #init
     print("Spark ready.", flush=True)
 
+    if not _configure_java():
+        print("ERROR: Java 17 not found.", flush=True)
+        print("       Download it from: https://adoptium.net/temurin/releases/?version=17", flush=True)
+        print("       Install it, then restart the server.", flush=True)
+        sys.exit(1)
+    server = await asyncio.start_server(_handle_connection, HOST, PORT)
+    addrs  = ", ".join(str(s.getsockname()) for s in server.sockets)
+    print(f"LibQuery server listening on {addrs}")
+    print(f"Max concurrent queries: {MAX_CONCURRENT_QUERIES}")
 
     async with server:
         await server.serve_forever()
