@@ -236,8 +236,7 @@ async def _run() -> None:
     print("Spark ready.", flush=True)
 
     registry.scan_downloaded_books()
-    print("Registry initialized")
-    print(registry.ls())    
+    print("Registry initialized")   
     server = await asyncio.start_server(_handle_connection, HOST, PORT)
     addrs  = ", ".join(str(s.getsockname()) for s in server.sockets)
     print(f"LibQuery server listening on {addrs}")
