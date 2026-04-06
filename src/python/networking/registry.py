@@ -47,23 +47,14 @@ LIBRARY_BOOKS: dict[str, list[str]] = {
         "al-qaaria", "at-takaathur", "al-asr", "al-humaza", "al-fil",
         "quraish", "al-maaun", "al-kawthar", "al-kaafiroon", "an-nasr",
         "al-masad", "al-ikhlaas", "al-falaq", "an-naas",
-    ],"hindu": [
+    ],
+    
+    "hindu": [
         
-        # Bhagavad Gita (18 chapters, treated as single book)
-        "bhagavad-gita",
+        "bhagavadgita",
         
-        # Rigveda
-        "rigveda-1", "rigveda-2", "rigveda-3", "rigveda-4", "rigveda-5",
-        "rigveda-6", "rigveda-7", "rigveda-8", "rigveda-9", "rigveda-10",
-        
-        # Upanishads
-        "isha", "kena", "katha", "prashna", "mundaka",
-        "mandukya", "taittiriya", "aitareya", "chandogya", "brihadaranyaka",
-        
-        # Ramayana
-        "ramayana-bala", "ramayana-ayodhya", "ramayana-aranya",
-        "ramayana-kishkindha", "ramayana-sundara", "ramayana-yuddha",
-        "ramayana-uttara",
+        "ramayana-1", "ramayana-2", "ramayana-3",
+        "ramayana-4", "ramayana-5", "ramayana-6",
     ],
 
     "talmud": [

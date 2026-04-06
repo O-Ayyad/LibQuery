@@ -20,7 +20,6 @@ PARQUET_DIR = os.path.join(PROJECT_ROOT, "data", "parquet")
 LIBRARY_CONFIG = {
     "bible": {
         "base_url": "https://api.getbible.net/v2/kjv",
-        "translation": "kjv",
     },
     "quran": {
         "arabic_url":  "https://api.alquran.cloud/v1/quran/quran-uthmani",
@@ -30,10 +29,8 @@ LIBRARY_CONFIG = {
         "base_url": "https://www.sefaria.org/api/texts",
     },
     "hindu": {
-        "gita_base":         "https://bhagavadgita.theaum.org",
         "dharmic_data_base": "https://raw.githubusercontent.com/bhavykhatri/DharmicData/main",
-        "upanishads_base":   "https://raw.githubusercontent.com/vedicscriptures/upanishads/main",
-
+        "ramayanam_api_base": "https://raw.githubusercontent.com/imradhe/ramayanam-api/main",
     },
     "mormon": {
         "base_url": "https://raw.githubusercontent.com/BraydenTW/book-of-mormon-api/refs/heads/main/book-of-mormon.json",

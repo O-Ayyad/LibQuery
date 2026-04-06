@@ -13,22 +13,26 @@ def _safe(value: str, field: str) -> str:
 
 def build_query(
     library: str,
-    book: str,
-    *,
     start_chapter: int,
     start_verse: int = NO_VERSE,
     end_chapter: int | None = None,
     end_verse: int = NO_VERSE,
-    lang: str = "en",
+    lang: str | None = None,
 ) -> str:
     # default end_chapter = start_chapter
 
     library = _safe(library.lower(), "library")
-    lang = _safe(lang.lower(), "lang")
-
 
     if end_chapter is None:
         end_chapter = start_chapter
+
+    try:
+        start_chapter = int(start_chapter)
+        start_verse= int(start_verse)
+        end_chapter= int(end_chapter)
+        end_verse = int(end_verse)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid query parameter: {e}") from None
 
     conditions = []
 
@@ -61,14 +65,14 @@ def build_query(
 
     where_clause = " OR ".join(conditions)
 
-    if library.lower() == "quran":
-        # Return both Arabic and English
+    if lang is None:
         sql = (
             f"SELECT chapter, verse, text, lang FROM library "
             f"WHERE {where_clause} "
-            f"ORDER BY chapter, verse, CASE WHEN lang = 'ar' THEN 0 ELSE 1 END"
+            f"ORDER BY chapter, verse, CASE WHEN lang = 'en' THEN 1 ELSE 0 END"
         )
     else:
+        lang = _safe(lang.lower(), "lang")
         sql = (
             f"SELECT chapter, verse, text, lang FROM library "
             f"WHERE {where_clause} AND lang = '{lang}' "

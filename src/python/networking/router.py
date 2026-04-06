@@ -143,7 +143,10 @@ def handle(payload: dict,  send: Callable[[str], None]) -> str: #Route the paylo
             library = payload.get("library")
             book = payload.get("book")
             try:
-                fetch(library, book,send)
+                saved = fetch(library, book, send)
+                if not saved:
+                    return f"ERROR: nothing downloaded for {library}/{book or 'all'}\n Library or book may not exist"
+                            
                 return f"OK: downloaded and ingested {library}/{book or 'all'}"
             except Exception as e:
                 return f"ERROR: {e}"

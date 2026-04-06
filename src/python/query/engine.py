@@ -64,9 +64,9 @@ def execute(payload: dict[str, Any]) -> list[dict]: # Payload builds SQL query t
     start_verse   = int(payload.get("start_verse",  NO_VERSE))
     end_chapter   = int(payload.get("end_chapter",  start_chapter))
     end_verse     = int(payload.get("end_verse",    NO_VERSE))
-    lang          = payload.get("lang", "en")
+    lang          = payload.get("lang", None)
 
-    if library == "quran":
+    if library == "quran": #Quran has no books edge case
         for surah_num in range(start_chapter, end_chapter + 1):
             surah_name = _QURAN_SURAHS.get(surah_num)
             if not surah_name or not is_downloaded("quran", surah_name):
@@ -85,7 +85,7 @@ def execute(payload: dict[str, Any]) -> list[dict]: # Payload builds SQL query t
     _load_books(spark, library, book, start_chapter, end_chapter)
 
     sql = build_query(
-        library, book,
+        library,
         start_chapter=start_chapter,
         start_verse=start_verse,
         end_chapter=end_chapter,

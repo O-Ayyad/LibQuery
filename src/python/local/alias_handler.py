@@ -35,6 +35,24 @@ HARDCODED_ALIASES: dict[str, str] = {
     "2ndpeter":"2peter",
     "psalms": "psalms",
     "psalm":"psalms",
+
+    "bhagavad-gita":"bhagavadgita",
+    "bhagavad_gita":"bhagavadgita",
+
+    "ramayana":"ramayana-1",  #default to bala kanda 1
+    "balakanda":"ramayana-1",
+    "bala":"ramayana-1",
+    "ayodhyakanda":"ramayana-2",
+    "ayodhya":"ramayana-2",
+    "aranyakanda":"ramayana-3",
+    "aranya":  "ramayana-3",
+    "kishkindhakanda": "ramayana-4",
+    "kishkindha":"ramayana-4",
+    "sundarakanda": "ramayana-5",
+    "sundara": "ramayana-5",
+    "sundar": "ramayana-5",
+    "yuddhakanda":"ramayana-6",
+    "yuddha": "ramayana-6",
 }
 def load() -> dict:
     if not os.path.exists(ALIAS_FILE):

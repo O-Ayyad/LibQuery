@@ -574,8 +574,8 @@ int query(const char *library, const char *book, bool use_range, Range range){ /
             "\"start_chapter\":1,"
             "\"start_verse\":-1,"
             "\"end_chapter\":999,"
-            "\"end_verse\":-1,"
-            "\"lang\":\"en\"}",
+            "\"end_verse\":-1}",
+            //"\"lang\":\"en\"}",
             library, book);
     } else {
         snprintf(payload, sizeof(payload),
@@ -585,8 +585,8 @@ int query(const char *library, const char *book, bool use_range, Range range){ /
             "\"start_chapter\":%d,"
             "\"start_verse\":%d,"
             "\"end_chapter\":%d,"
-            "\"end_verse\":%d,"
-            "\"lang\":\"en\"}",
+            "\"end_verse\":%d}",
+            //"\"lang\":\"en\"}",
             library, book,
             range.start.chapter,
             range.start.verse,    // -1 for no verse

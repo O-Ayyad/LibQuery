@@ -140,16 +140,6 @@ MORMON_TITLE_MAP: dict[str, str] = {
     "moroni":"Moroni",
 }
 
-RAMAYANA_FILES: dict[str, str] = {
-    "bala":       "1_balakanda",
-    "ayodhya":    "2_ayodhyakanda",
-    "aranya":     "3_aranyakanda",
-    "kishkindha": "4_kishkindhakanda",
-    "sundara":    "5_sundarakanda",
-    "yuddha":     "6_yudhhakanda",
-    "uttara":     "7_uttarakanda",
-}
-
 def _save(library: str, filename: str, data: dict) -> str: #Save the data to the raw data directory
     """Save a dict as JSON under data/raw/<library>/<filename>.json"""
     out_dir = os.path.join(RAW_DATA_DIR, library)
@@ -166,6 +156,9 @@ def _cleanup_raw(library: str) -> None: #Clean up the raw data directory
         shutil.rmtree(raw_dir)
         print(f"  Cleaned up {raw_dir}", flush=True)
 
+# ________________________________________________________________________________________________ HINDU
+# ________________________________________________________________________________________________ HINDU
+# ________________________________________________________________________________________________ HINDU
 def fetch_hindu(book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
     saved: list[str] = []
 
@@ -178,99 +171,79 @@ def fetch_hindu(book: str | None = None, send: Callable[[str], None] = print) ->
         send("Hindu texts are already fully downloaded.")
         return []
 
-    for b in books_to_fetch:
+    ramayana_needed = [b for b in books_to_fetch if b.startswith("ramayana-")]
+    non_ramayana = [b for b in books_to_fetch if not b.startswith("ramayana-")]
+
+    if ramayana_needed:
         try:
-            if b == "bhagavad-gita":
+            saved += _fetch_ramayana(ramayana_needed, send)
+        except Exception as e:
+            send(f"  Error fetching Ramayana: {e}")
+
+    for b in non_ramayana:
+        try:
+            if b == "bhagavadgita":
                 saved += _fetch_gita(send)
-            elif b.startswith("rigveda-"):
-                mandala = int(b.split("-")[1])
-                saved += _fetch_rigveda_mandala(mandala, send)
-            elif b.startswith("ramayana-"):
-                kanda = b.split("ramayana-")[1]
-                saved += _fetch_ramayana_kanda(kanda, send)
-            elif b in ("isha","kena","katha","prashna","mundaka",
-                       "mandukya","taittiriya","aitareya","chandogya","brihadaranyaka"):
-                saved += _fetch_upanishad(b, send)
             else:
                 send(f"  Unknown hindu text: '{b}'")
         except Exception as e:
             send(f"  Error fetching {b}: {e}")
-    _cleanup_raw("hindu")
+
     return saved
 
+def _fetch_ramayana(kandas_needed: list[str], send: Callable[[str], None]) -> list[str]:
+    base = LIBRARY_CONFIG["hindu"]["ramayanam_api_base"]
+    url = f"{base}/slokas/slokas.csv"
+    send("Fetching Valmiki Ramayana (full CSV)...")
+    r = requests.get(url, timeout=120)
+    r.raise_for_status()
+
+    import csv, io
+    reader = csv.DictReader(io.StringIO(r.text))
+
+    #Split by kanda
+    kandas: dict[int, list[dict]] = {}
+    for row in reader:
+        kanda = int(row["kanda"])
+        kandas.setdefault(kanda, []).append(row)
+
+    # Only ingest the kandas that were requested
+    needed_nums = {int(b.split("-")[1]) for b in kandas_needed}
+
+    saved = []
+    for kanda_num, rows in sorted(kandas.items()):
+        if kanda_num not in needed_nums:
+            continue
+        path = _save("hindu", f"ramayana-{kanda_num}", {"slokas": rows})
+        saved.append(path)
+        ingest(f"hindu:ramayana-{kanda_num}", send)
+        send(f"  Ramayana kanda {kanda_num} done ({len(rows)} slokas)")
+
+    return saved
 
 def _fetch_gita(send: Callable[[str], None]) -> list[str]:
-    base = LIBRARY_CONFIG["hindu"]["gita_base"]
+    base = LIBRARY_CONFIG["hindu"]["dharmic_data_base"]
     send("Fetching Bhagavad Gita...")
     chapters = []
     for ch in range(1, 19):
-        r = requests.get(f"{base}/chapter/{ch}", timeout=30)
+        url = f"{base}/SrimadBhagvadGita/bhagavad_gita_chapter_{ch}.json"
+        r = requests.get(url, timeout=30)
         r.raise_for_status()
-        verse_count = r.json()["data"][0]["verses_count"]
+        chapters.extend(r.json().get("BhagavadGitaChapter", []))
+        send(f"  Fetched chapter {ch}")
+        time.sleep(0.3)
 
-        verses = []
-        for v in range(1, verse_count + 1):
-            r2 = requests.get(f"{base}/text/translations/{ch}/{v}", timeout=30)
-            r2.raise_for_status()
-            translations = r2.json().get("data", [])
-            en_text = next(
-                (t["translation"] for t in translations if t["lang"] == "en"),
-                None
-            )
-            r3 = requests.get(f"{base}/text/{ch}/{v}", timeout=30)
-            r3.raise_for_status()
-            shloka = r3.json()["data"][0]["shloka"] if r3.json().get("data") else ""
-            verses.append({"verse": v, "shloka": shloka, "translation": en_text})
-            time.sleep(0.1)
-
-        chapters.append({"chapter": ch, "verses": verses})
-        send(f"  Chapter {ch} done ({verse_count} verses)")
-
-    path = _save("hindu", "bhagavad-gita", {"chapters": chapters})
-    ingest("hindu:bhagavad-gita", send)
+    path = _save("hindu", "bhagavadgita", {"chapters": chapters})
+    ingest("hindu:bhagavadgita", send)
     return [path]
-
-
-def _fetch_rigveda_mandala(mandala: int, send: Callable[[str], None]) -> list[str]:
-    base = LIBRARY_CONFIG["hindu"]["dharmic_data_base"]
-    send(f"Fetching Rigveda mandala {mandala}...")
-    url = f"{base}/Rigveda/rigveda_mandala_{mandala}.json"
-    r = requests.get(url, timeout=60)
-    r.raise_for_status()
-    path = _save("hindu", f"rigveda-{mandala}", r.json())
-    ingest(f"hindu:rigveda-{mandala}", send)
-    return [path]
-
-
-def _fetch_ramayana_kanda(kanda: str, send: Callable[[str], None]) -> list[str]:
-    base = LIBRARY_CONFIG["hindu"]["dharmic_data_base"]
-    filename = RAMAYANA_FILES.get(kanda)
-    if not filename:
-        raise ValueError(f"Unknown kanda: '{kanda}'")
-    send(f"Fetching Ramayana / {kanda} kanda...")
-    url = f"{base}/ValmikiRamayana/{filename}.json"
-    r = requests.get(url, timeout=60)
-    r.raise_for_status()
-    path = _save("hindu", f"ramayana-{kanda}", r.json())
-    ingest(f"hindu:ramayana-{kanda}", send)
-    return [path]
-
-
-def _fetch_upanishad(name: str, send: Callable[[str], None]) -> list[str]:
-    base = LIBRARY_CONFIG["hindu"]["upanishads_base"]
-    send(f"Fetching Upanishad: {name}...")
-    url = f"{base}/{name}.json"
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    path = _save("hindu", name, r.json())
-    ingest(f"hindu:{name}", send)
-    return [path]
-
+#  _____________________________________________________________________________________________________ TALMUD
+#  _____________________________________________________________________________________________________ TALMUD
+# ______________________________________________________________________________________________________ TALMUD
 def fetch_talmud(book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
     saved: list[str] = []
     base_url = LIBRARY_CONFIG["talmud"]["base_url"]
 
-    books_to_fetch = ( #Get the books to fetch
+    books_to_fetch = (
         [book.lower()] if book
         else [b for b in LIBRARY_BOOKS["talmud"] if not is_downloaded("talmud", b)]
     )
@@ -279,27 +252,68 @@ def fetch_talmud(book: str | None = None, send: Callable[[str], None] = print) -
         send("Talmud is already fully downloaded.")
         return []
 
-    for tractate in books_to_fetch: #Fetch each tractate
+    for tractate in books_to_fetch:
         sefaria_ref = TALMUD_SEFARIA_REFS.get(tractate)
         if not sefaria_ref:
             send(f"  Unknown tractate: '{tractate}'")
+            send(f"  Available: {', '.join(sorted(TALMUD_SEFARIA_REFS.keys()))}")
             continue
         send(f"Fetching talmud/{tractate}...")
         try:
-            r = requests.get(
-                f"{base_url}/{sefaria_ref}",
-                params={"lang": "bi", "pad": 0, "context": 0},
-                timeout=60,
-            )
-            r.raise_for_status()
-            path = _save("talmud", tractate, r.json())
+            data = _fetch_talmud_tractate(base_url, tractate, sefaria_ref, send)
+            path = _save("talmud", tractate, data)
             saved.append(path)
             ingest(f"talmud:{tractate}", send)
             time.sleep(0.5)
         except requests.RequestException as e:
-            send(f"  Error fetching {tractate}: {e}")
+            raise ValueError(f"  Error fetching {tractate}: {e}")
+
     _cleanup_raw("talmud")
     return saved
+
+
+def _fetch_talmud_tractate(base_url: str, tractate: str, sefaria_ref: str, send: Callable[[str], None]) -> dict:
+    #try fetching the whole tractate
+    r = requests.get(
+        f"{base_url}/{sefaria_ref}",
+        params={"lang": "bi", "pad": 0, "context": 0},
+        timeout=60,
+    )
+    r.raise_for_status()
+    data = r.json()
+
+    # If spanning fetch daf by daf and merge
+    if data.get("isSpanning") or data.get("spanning"):
+        send(f"  {tractate} is spanning — fetching by daf...")
+        all_en, all_he = [], []
+        daf_letters = ["a", "b"]
+        # Talmud dafs start at 2
+        for daf_num in range(2, 200):
+            for letter in daf_letters:
+                ref = f"{sefaria_ref}.{daf_num}{letter}"
+                try:
+                    r2 = requests.get(
+                        f"{base_url}/{ref}",
+                        params={"lang": "bi", "pad": 0, "context": 0},
+                        timeout=30,
+                    )
+                    r2.raise_for_status()
+                    daf_data = r2.json()
+                    if not daf_data.get("text") and not daf_data.get("he"):
+                        return {"text": all_en, "he": all_he}
+                    all_en.append(daf_data.get("text", []))
+                    all_he.append(daf_data.get("he", []))
+                    time.sleep(0.3)
+                except requests.RequestException:
+                    return {"text": all_en, "he": all_he}
+        return {"text": all_en, "he": all_he}
+
+    return data
+
+#  _____________________________________________________________________________________________________ MORMON
+#  _____________________________________________________________________________________________________ MORMON
+# ______________________________________________________________________________________________________ MORMON
+
 def fetch_mormon(book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
     if is_downloaded("mormon") and book is None:
         send("Book of Mormon already fully downloaded.")
@@ -311,8 +325,7 @@ def fetch_mormon(book: str | None = None, send: Callable[[str], None] = print) -
         r.raise_for_status()
         data = r.json()
     except requests.RequestException as e:
-        send(f"  Error fetching Book of Mormon: {e}")
-        return []
+        raise ValueError(f"  Error fetching Book of Mormon: {e}")
 
     books_by_title = {b["book"]: b for b in data.get("books", [])}
     saved = []
@@ -339,6 +352,9 @@ def fetch_mormon(book: str | None = None, send: Callable[[str], None] = print) -
     _cleanup_raw("mormon")
     return saved
 
+#  _____________________________________________________________________________________________________ BIBLE
+#  _____________________________________________________________________________________________________ BIBLE
+# ______________________________________________________________________________________________________ BIBLE
 def fetch_bible(book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
 
     #Fetch one Bible book or the full KJV.
@@ -393,12 +409,14 @@ def fetch_bible(book: str | None = None, send: Callable[[str], None] = print) ->
         send(f"Book '{book_key}' download complete -> {saved_path}")
     _cleanup_raw("bible")
     return saved
-
+#  _____________________________________________________________________________________________________ QURAN
+#  _____________________________________________________________________________________________________ QURAN
+# ______________________________________________________________________________________________________ QURAN
 # Fetch Arabic and English Quran and save both
-def fetch_quran(send: Callable[[str], None] = print):
+def fetch_quran(send: Callable[[str], None] = print) -> list[str]:
     if is_downloaded("quran"):
         send("Quran fully downloaded.")
-        return
+        return []
 
     cfg = LIBRARY_CONFIG["quran"]
 
@@ -407,7 +425,7 @@ def fetch_quran(send: Callable[[str], None] = print):
 
     r = requests.get(cfg["arabic_url"], timeout=60)
     r.raise_for_status()
-    _save("quran", "arabic", r.json())
+    path_ar = _save("quran", "arabic", r.json())
     send("Done fetching Quran in Arabic")
 
     time.sleep(1)  # rate limit
@@ -416,10 +434,12 @@ def fetch_quran(send: Callable[[str], None] = print):
     r = requests.get(cfg["english_url"], timeout=60)
     r.raise_for_status()
 
-    _save("quran", "english_asad", r.json())
+    path_en = _save("quran", "english_asad", r.json())
     send("Done fetching Quran in English")
     ingest("quran",send) 
-    _cleanup_raw("talmud")
+    _cleanup_raw("quran")
+
+    return [path_ar, path_en]
     
 def fetch(library: str, book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
     # Entry point used by c download cmd and by ingest
@@ -434,7 +454,7 @@ def fetch(library: str, book: str | None = None, send: Callable[[str], None] = p
         return fetch_hindu(book, send)
     if library == "mormon":
         return fetch_mormon(book, send)
-    return [f"Unsupported library: '{library}'"]
+    raise ValueError(f"Unsupported library: '{library}'. Available: bible, quran, talmud, hindu, mormon")
 
 
 if __name__ == "__main__":

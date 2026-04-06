@@ -259,7 +259,7 @@ class Hindu(Library):
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
 
-            if book_name == "bhagavad-gita":
+            if book_name == "bhagavadgita":
                 yield from self._parse_gita(data, book_name)
             elif book_name.startswith("rigveda-"):
                 yield from self._parse_rigveda(data, book_name)
@@ -268,64 +268,53 @@ class Hindu(Library):
             else:
                 yield from self._parse_upanishad(data, book_name)
 
+
     def _parse_gita(self, data: dict, book_name: str) -> Iterator[Row]:
-        for ch_obj in data.get("chapters", []):
-            ch_num = int(ch_obj["chapter"])
-            for v in ch_obj.get("verses", []):
-                verse_num = int(v["verse"])
-                if v.get("shloka"):
-                    yield {
-                        "library": self.name, "book": book_name,
-                        "chapter": ch_num, "verse": verse_num,
-                        "text": v["shloka"].strip(), "lang": "sa",
-                    }
-                if v.get("translation"):
-                    yield {
-                        "library": self.name, "book": book_name,
-                        "chapter": ch_num, "verse": verse_num,
-                        "text": v["translation"].strip(), "lang": "en",
-                    }
+        for v in data.get("chapters", []):
+            ch_num = int(v["chapter"])
+            verse_num = int(v["verse"])
 
-    def _parse_rigveda(self, data: dict, book_name: str) -> Iterator[Row]:
-        for hymn in data.get("hymns", []):
-            hymn_num = int(hymn.get("hymn", 0))
-            for v in hymn.get("verses", []):
+            sa_text = re.sub(r"।।\d+\.\d+।।", "", v.get("text", "")).strip()
+            if sa_text:
                 yield {
-                    "library": self.name,
-                    "book": book_name,
-                    "chapter": hymn_num,
-                    "verse": int(v.get("verse", 0)),
-                    "text": v.get("text", "").strip(),
-                    "lang": "en",
+                    "library": self.name, "book": book_name,
+                    "chapter": ch_num, "verse": verse_num,
+                    "text": sa_text, "lang": "sa",
                 }
 
+            en_text = v.get("translations", {}).get("swami sivananda", "").strip()
+            en_text = re.sub(r"^\d+\.\d+\.?\s*", "", en_text).strip()
+            if en_text:
+                yield {
+                    "library": self.name, "book": book_name,
+                    "chapter": ch_num, "verse": verse_num,
+                    "text": en_text, "lang": "en",
+                }
+    #API returns csv file
     def _parse_ramayana(self, data: dict, book_name: str) -> Iterator[Row]:
-        for verse in data.get("sargas", []):
-            verse_num = int(verse.get("sarga", 0))
-            for v in verse.get("verses", []):
+        for sloka in data.get("slokas", []):
+            sarga = int(sloka.get("sarga", 0))
+            sloka_num = int(sloka.get("sloka", 0))
+
+            sa_text = sloka.get("text", "").strip()
+            sa_text = re.sub(r"।।[\d.]+।।", "", sa_text).strip()
+
+            en_text = sloka.get("translation", "")
+            if isinstance(en_text, str):
+                en_text = re.sub(r"<[^>]+>", "", en_text).strip()
+
+            if sa_text:
                 yield {
-                    "library": self.name,
-                    "book": book_name,
-                    "chapter": verse_num,
-                    "verse": int(v.get("verse", 0)),
-                    "text": v.get("text", "").strip(),
-                    "lang":"en",
+                    "library": self.name, "book": book_name,
+                    "chapter": sarga, "verse": sloka_num,
+                    "text": sa_text, "lang": "sa",
                 }
-
-    def _parse_upanishad(self, data: dict, book_name: str) -> Iterator[Row]:
-        for ch_obj in data.get("chapters", []):
-            ch_num = int(ch_obj.get("chapter", 0))
-            for v in ch_obj.get("verses", []):
+            if en_text:
                 yield {
-                    "library": self.name,
-                    "book": book_name,
-                    "chapter": ch_num,
-                    "verse": int(v.get("verse", 0)),
-                    "text": v.get("text", "").strip(),
-                    "lang": "en",
+                    "library": self.name, "book": book_name,
+                    "chapter": sarga, "verse": sloka_num,
+                    "text": en_text, "lang": "en",
                 }
-
-
 class Mormon(Library):
 
     def __init__(self, book: str | None = None):
