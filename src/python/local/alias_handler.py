@@ -50,7 +50,7 @@ def save(aliases: dict) -> None:
 
 
 
-def cmd_ls() -> str:
+def cmd_ls() -> str: #List all aliases
     aliases = load()
     if not aliases:
         return "No aliases set."
@@ -89,8 +89,7 @@ def cmd_rm(target: str) -> str:
     save(aliases)
     return f"Alias '{target}' removed."
 
-
-def cmd_resolve(alias_name: str) -> str:
+def cmd_resolve(alias_name: str ) -> str:
     if alias_name in HARDCODED_ALIASES:
         return HARDCODED_ALIASES[alias_name]
     aliases = load()

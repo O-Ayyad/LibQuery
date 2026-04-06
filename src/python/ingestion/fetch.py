@@ -150,7 +150,7 @@ RAMAYANA_FILES: dict[str, str] = {
     "uttara":     "7_uttarakanda",
 }
 
-def _save(library: str, filename: str, data: dict) -> str:
+def _save(library: str, filename: str, data: dict) -> str: #Save the data to the raw data directory
     """Save a dict as JSON under data/raw/<library>/<filename>.json"""
     out_dir = os.path.join(RAW_DATA_DIR, library)
     os.makedirs(out_dir, exist_ok=True)
@@ -160,7 +160,7 @@ def _save(library: str, filename: str, data: dict) -> str:
     print(f"  Saved to {out_path}")
     return out_path
 
-def _cleanup_raw(library: str) -> None:
+def _cleanup_raw(library: str) -> None: #Clean up the raw data directory
     raw_dir = os.path.join(RAW_DATA_DIR, library)
     if os.path.isdir(raw_dir):
         shutil.rmtree(raw_dir)
@@ -270,7 +270,7 @@ def fetch_talmud(book: str | None = None, send: Callable[[str], None] = print) -
     saved: list[str] = []
     base_url = LIBRARY_CONFIG["talmud"]["base_url"]
 
-    books_to_fetch = (
+    books_to_fetch = ( #Get the books to fetch
         [book.lower()] if book
         else [b for b in LIBRARY_BOOKS["talmud"] if not is_downloaded("talmud", b)]
     )
@@ -279,7 +279,7 @@ def fetch_talmud(book: str | None = None, send: Callable[[str], None] = print) -
         send("Talmud is already fully downloaded.")
         return []
 
-    for tractate in books_to_fetch:
+    for tractate in books_to_fetch: #Fetch each tractate
         sefaria_ref = TALMUD_SEFARIA_REFS.get(tractate)
         if not sefaria_ref:
             send(f"  Unknown tractate: '{tractate}'")
@@ -420,7 +420,7 @@ def fetch_quran(send: Callable[[str], None] = print):
     send("Done fetching Quran in English")
     ingest("quran",send) 
     _cleanup_raw("talmud")
-
+    
 def fetch(library: str, book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
     # Entry point used by c download cmd and by ingest
     library = library.lower()
@@ -429,7 +429,7 @@ def fetch(library: str, book: str | None = None, send: Callable[[str], None] = p
     if library == "quran":
         return fetch_quran(send)
     if library == "talmud":
-        return fetch_talmud(book, send)
+        return fetch_talmud(book, send)     
     if library == "hindu":
         return fetch_hindu(book, send)
     if library == "mormon":

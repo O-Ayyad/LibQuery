@@ -42,7 +42,7 @@
     typedef int sock_t;
 #endif
 
-typedef enum { //Requires authentication
+typedef enum { //Server commands that require authentication
     CMD_CLOSE,
     CMD_HOST,
     CMD_RESTART,
@@ -78,7 +78,7 @@ static void net_cleanup(void)
 #endif
 }
 
-void get_project_root(char *out, size_t size) {
+void get_project_root(char *out, size_t size) { //Get the project root for python scripts and tokens
 #ifdef _WIN32
     GetModuleFileNameA(NULL, out, (DWORD)size);
     char *last = strrchr(out, '\\');
@@ -109,6 +109,8 @@ void resolve_token_path() {
              "%s/data/serverdata/admin.token", path);
 #endif
 }
+
+//Load the admin token from the token file
 char *load_admin_token()
 {
     FILE *f = fopen(token_path, "r");
@@ -142,6 +144,7 @@ char *load_admin_token()
     return token;
 }
 
+//Get the target IP from the networking config
 char* get_ip() {
     static char result[128];
     char config_path[512];
@@ -175,7 +178,7 @@ char* get_ip() {
     return result;
 }
 
-
+//Helper function to print a verse in send_and_print
 void print_verse(int chapter, int verse, const char *text) {
     char ref[16];
     snprintf(ref, sizeof(ref), "%d:%-4d ", chapter, verse);
@@ -326,7 +329,7 @@ int server_online(){
     return !ping(true);
 }
 
-FILE* run_python(char* path, char* args) {
+FILE* run_python(char* path, char* args) { //Run a python script
     char exe_path[4096];
     char command[512];
 
@@ -346,7 +349,7 @@ FILE* run_python(char* path, char* args) {
     return popen(command, "r");
     return popen(command, "r");
 }
-int host_server() {
+int host_server() { //Invoke networking server to host the server in a new terminal
     if(server_online()){
         fprintf(stderr, "Error: Server is already running.\n");
         return 1;
@@ -447,7 +450,9 @@ int close_server(void)
 
     free(token);
     return send_and_print_local(buf);
-}
+}\
+
+//Restart the server by closing then hosting
 int restart_server(){
     int a = close_server();
     #ifdef _WIN32
@@ -476,6 +481,7 @@ int download(const char *library, const char *book){
             library);
     return send_and_print(payload);
 }
+//Checks if alias is valid and returns the full reference of the alias
 char* resolve_alias(const char *token) { //Local command
     char subcmd[256];
     snprintf(subcmd, sizeof(subcmd), "resolve %s", token);
@@ -553,7 +559,7 @@ char* target_ip(char* payload){
     result[strcspn(result, "\n")] = '\0';
     return result;
 }
-int query(const char *library, const char *book, bool use_range, Range range){
+int query(const char *library, const char *book, bool use_range, Range range){ //Query the server for text
     if(!server_online()){
         fprintf(stderr,"Server is not online");
         return 1;
@@ -618,7 +624,7 @@ void print_help(void){
     );
 }
 
-static void print_welcome(void){
+static void print_welcome(void){ //Print welcome message
     printf(
         "Welcome to LibQuery, a distributed literary corpus query system\n"
         "Type 'libquery help' for usage.\n"
@@ -636,7 +642,7 @@ Server_Commands parse_command(char *cmd) {
 }
 
 
-int hadoop_available(char *project_root) {
+int hadoop_available(char *project_root) { //Check if hadoop is available
 #ifdef _WIN32
     char path[512];
     struct stat st;

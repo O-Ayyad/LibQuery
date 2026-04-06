@@ -16,7 +16,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 RAW_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
 PARQUET_DIR = os.path.join(PROJECT_ROOT, "data", "parquet")
 
-     
+# Library configurations and API endpoints
 LIBRARY_CONFIG = {
     "bible": {
         "base_url": "https://api.getbible.net/v2/kjv",

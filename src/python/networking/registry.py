@@ -80,7 +80,7 @@ LIBRARY_BOOKS: dict[str, list[str]] = {
         "3nephi", "4nephi", "mormon", "ether", "moroni",
     ],
 }
-
+    
 _downloaded_cache: dict[str, set[str]] = {}
 
 def _book_on_disk(library: str, book: str) -> bool:
@@ -131,7 +131,7 @@ def known_books(library: str) -> list[str]:
     #Return all known books for a library downloaded or not.
     return LIBRARY_BOOKS.get(library, [])
 
-def scan_downloaded_books():
+def scan_downloaded_books(): #Scan dirs to see which books exist
     global _downloaded_cache
     _downloaded_cache = {}
     for library in LIBRARY_BOOKS:
@@ -146,7 +146,7 @@ def scan_downloaded_books():
             )
         }
 
-def ls() -> str:
+def ls() -> str: #List all books and download status
 
     if not LIBRARY_BOOKS:
         return "No libraries registered."

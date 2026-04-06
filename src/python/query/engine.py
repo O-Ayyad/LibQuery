@@ -56,7 +56,7 @@ def _load_books(spark, library: str, book: str, start_chapter: int, end_chapter:
         )
     spark.read.parquet(book_dir).createOrReplaceTempView("library")
 
-def execute(payload: dict[str, Any]) -> list[dict]:
+def execute(payload: dict[str, Any]) -> list[dict]: # Payload builds SQL query then returns rows to CLI
     print("Executing payload:", json.dumps(payload, indent=2))
     library       = payload["library"].lower()
     book          = payload["book"].lower()
