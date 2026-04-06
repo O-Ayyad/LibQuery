@@ -481,6 +481,30 @@ int download(const char *library, const char *book){
             library);
     return send_and_print(payload);
 }
+
+int download_all(){ // Downloads every book from every library
+    if(!server_online()){
+        fprintf(stderr,"Server is not online\n");
+        return 1;
+    }
+    char payload[512];
+
+    printf("\n             WARNING! This will download every single book from every library. \n"
+           "               This may take minutes to download and will prevent the server from executing anything.\n"
+           "               Are you sure you want to download everything [Y/N]\n\n");
+    
+        fflush(stdout);
+
+    char input[16];
+    if (!fgets(input, sizeof(input), stdin))
+        return 1;
+    if (input[0] != 'y' && input[0] != 'Y') {
+        printf("Cancelled.\n");
+        return 0;
+    }
+    snprintf(payload, sizeof(payload), "{\"cmd\":\"download\",\"library\":\"all\"}");
+    return send_and_print(payload);
+}
 //Checks if alias is valid and returns the full reference of the alias
 char* resolve_alias(const char *token) { //Local command
     char subcmd[256];
@@ -798,6 +822,10 @@ int main(int argc, char *argv[]){
             if (!library) {
                 fprintf(stderr, "Error: specify a library, e.g. 'libquery download bible'\n");
                 rc = 1; 
+                break;
+            }
+            if(strcasecmp(argv[2],"all") == 0){
+                download_all();
                 break;
             }
             rc = download(library, book);

@@ -444,6 +444,12 @@ def fetch_quran(send: Callable[[str], None] = print) -> list[str]:
 def fetch(library: str, book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
     # Entry point used by c download cmd and by ingest
     library = library.lower()
+    if library == "all":
+        saved = []
+        for lib in ["bible", "quran", "talmud", "hindu", "mormon"]:
+            saved += fetch(lib, None, send)
+        return saved
+    
     if library == "bible":
         return fetch_bible(book, send)
     if library == "quran":
