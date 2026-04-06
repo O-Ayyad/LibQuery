@@ -73,7 +73,6 @@ async def _handle_connection(
     writer: asyncio.StreamWriter,
 ) -> None:
     async with _semaphore:
-        addr = writer.get_extra_info("peername")
         try:
             # Read until the client closes the write
             raw = await reader.read(65536)
@@ -216,13 +215,6 @@ async def _run() -> None:
         signal.signal(signal.SIGTERM, _handle_signal)
         signal.signal(signal.SIGHUP,  _handle_signal)
 
-    print("Initialising Spark...", flush=True)
-    _configure_hadoop()
-    print("Hadoop ready.", flush=True)
-    from query.engine import _get_spark
-    _get_spark() #init
-    print("Spark ready.", flush=True)
-
     if not configure_java():
         import pyspark
         spark_version = tuple(int(x) for x in pyspark.__version__.split(".")[:2])
@@ -235,6 +227,13 @@ async def _run() -> None:
             print(f"       Or install via package manager.", flush=True)
         print(f"       Then restart the server.", flush=True)
         sys.exit(1)
+
+    print("Initialising Spark...", flush=True)
+    _configure_hadoop()
+    print("Hadoop ready.", flush=True)
+    from query.engine import _get_spark
+    _get_spark() #init
+    print("Spark ready.", flush=True)
 
     registry.scan_downloaded_books()
     print("Registry initialized")

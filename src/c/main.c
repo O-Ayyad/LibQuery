@@ -84,7 +84,9 @@ void get_project_root(char *out, size_t size) {
     char *last = strrchr(out, '\\');
     if (last) *last = '\0';  
 #else
-    readlink("/proc/self/exe", out, size);
+    ssize_t n = readlink("/proc/self/exe", out, size - 1);
+    if (n == -1) { out[0] = '\0'; return; }
+    out[n] = '\0';
     char *last = strrchr(out, '/');
     if (last) *last = '\0';
 #endif
@@ -95,10 +97,8 @@ void get_project_root(char *out, size_t size) {
 
 static char token_path[4096];
 
-
-void resolve_token_path(){
+void resolve_token_path() {
     char path[512] = "";
-
     get_project_root(path, sizeof(path));
 
 #ifdef _WIN32
@@ -108,9 +108,8 @@ void resolve_token_path(){
     snprintf(token_path, sizeof(token_path),
              "%s/data/serverdata/admin.token", path);
 #endif
-
 }
-char *load_admin_token(void)
+char *load_admin_token()
 {
     FILE *f = fopen(token_path, "r");
     if (!f) {
@@ -381,11 +380,15 @@ snprintf(
         exe_path
     );
 #else
-    snprintf(
-        command, sizeof(command),
-        "gnome-terminal -- bash -c 'cd \"%s/src/python\" && python3 -m networking.server; exec bash'",
-        exe_path
-    );
+snprintf(
+    command,
+    sizeof(command),
+    "cd \"%s/src/python\" && "
+    "([ -x \"$(command -v gnome-terminal)\" ] && gnome-terminal -- bash -c \"python3 -m networking.server; exec bash\") || "
+    "([ -x \"$(command -v konsole)\" ] && konsole -e bash -c \"python3 -m networking.server; exec bash\") || "
+    "([ -x \"$(command -v xfce4-terminal)\" ] && xfce4-terminal -e \"bash -c 'python3 -m networking.server; exec bash'\" ) || "
+    "(xterm -e \"python3 -m networking.server\")"
+);
 #endif
 
     int result = system(command);
@@ -473,6 +476,28 @@ int download(const char *library, const char *book){
             library);
     return send_and_print(payload);
 }
+char* resolve_alias(const char *token) { //Local command
+    char subcmd[256];
+    snprintf(subcmd, sizeof(subcmd), "resolve %s", token);
+
+#ifdef _WIN32
+    FILE *fp = run_python("src\\python\\local\\alias_handler.py", subcmd);
+#else
+    FILE *fp = run_python("src/python/local/alias_handler.py", subcmd);
+#endif
+
+    static char resolved[256];
+    strncpy(resolved, token, sizeof(resolved) - 1);
+    resolved[sizeof(resolved) - 1] = '\0';
+
+    if (!fp) return resolved;
+
+    if (fgets(resolved, sizeof(resolved), fp) != NULL)
+        resolved[strcspn(resolved, "\r\n")] = '\0';
+
+    pclose(fp);
+    return resolved;
+}
 char* alias(char **args, int argc) { //Local and does not conact server
     char subcmd[64] = "";
     for (int i = 0; i < argc; i++) {
@@ -490,13 +515,17 @@ char* alias(char **args, int argc) { //Local and does not conact server
     if (!fp) return NULL;
 
     static char result[2048];
-    if (fgets(result, sizeof(result), fp) == NULL) {
-        pclose(fp);
-        return NULL;
+    result[0] = '\0';
+    char line[256];
+    while (fgets(line, sizeof(line), fp) != NULL){
+        strncat(result, line, sizeof(result) - strlen(result) - 1);
     }
     pclose(fp);
 
-    result[strcspn(result, "\n")] = '\0';
+    size_t len = strlen(result);
+    if (len > 0 && result[len - 1] == '\n')
+        result[len - 1] = '\0';
+
     return result;
 }
 //libquery target
@@ -527,6 +556,7 @@ char* target_ip(char* payload){
 int query(const char *library, const char *book, bool use_range, Range range){
     if(!server_online()){
         fprintf(stderr,"Server is not online");
+        return 1;
     }
     char payload[1024];
     if (!use_range) {
@@ -584,6 +614,7 @@ void print_help(void){
         "  libquery restart                             Restarts the server\n"
         "  libquery alias <library>/<book> <alias>      Allows calling of books with an alias (eg. Libquery b genesis 1:1)\n"
         "  libquery target <IP>                         Changes target IP. Use libquery target help for more information."
+        "  libquery ls <optional: library>              Lists all available libraries or all available books within a library"
     );
 }
 
@@ -629,6 +660,7 @@ int main(int argc, char *argv[]){
 
     char project_root[512];
     get_project_root(project_root, sizeof(project_root));
+    resolve_token_path();
     if (!hadoop_available(project_root)) {
         fprintf(stderr,
             "Error: winutils.exe not found.\n"
@@ -678,7 +710,16 @@ int main(int argc, char *argv[]){
             }   
             break;
         }
-
+        if (argc >= 2 && strcasecmp(argv[1], "ls") == 0) {
+            char payload[256];
+            if (argc >= 3)
+                snprintf(payload, sizeof(payload),
+                    "{\"cmd\":\"ls\",\"library\":\"%s\"}", argv[2]);
+            else
+                snprintf(payload, sizeof(payload), "{\"cmd\":\"ls\"}");
+            rc = send_and_print(payload);
+            break;
+        }
         if (argc >= 2 && (strcasecmp(argv[1], "alias") == 0)){
             if(argc == 2 ){
                 fprintf(stderr,
@@ -763,14 +804,24 @@ int main(int argc, char *argv[]){
             rc = 1;
             break;
         }
+        
+        static char library_buf[128];
+        static char book_buf[128];
 
-        const char *library = argv[1];
-        const char *book  = argv[2];
+        strncpy(library_buf, resolve_alias(argv[1]), sizeof(library_buf) - 1);
+        library_buf[sizeof(library_buf) - 1] = '\0';
+
+        strncpy(book_buf, resolve_alias(argv[2]), sizeof(book_buf) - 1);
+        book_buf[sizeof(book_buf) - 1] = '\0';
+
+        const char *library = library_buf;
+        const char *book = (argc >= 3) ? book_buf : argv[2];
+
         const char *ref = (argc >= 4) ? argv[3] : NULL;
 
         if (strcasecmp(library, "quran") == 0) {
-            ref  = (argc >= 3) ? argv[2] : NULL;
             book = "quran";
+            ref  = (argc >= 3) ? argv[2] : NULL;
         }
 
         bool  use_range = false;
@@ -786,7 +837,8 @@ int main(int argc, char *argv[]){
             }
             use_range = true;
         }
-
+        //printf("DEBUG: final call -> library='%s', book='%s', use_range=%d\n",
+        //library, book, use_range);
         rc = query(library, book, use_range, range);
     }while(0);
     

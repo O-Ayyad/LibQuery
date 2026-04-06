@@ -47,12 +47,47 @@ LIBRARY_BOOKS: dict[str, list[str]] = {
         "al-qaaria", "at-takaathur", "al-asr", "al-humaza", "al-fil",
         "quraish", "al-maaun", "al-kawthar", "al-kaafiroon", "an-nasr",
         "al-masad", "al-ikhlaas", "al-falaq", "an-naas",
+    ],"hindu": [
+        
+        # Bhagavad Gita (18 chapters, treated as single book)
+        "bhagavad-gita",
+        
+        # Rigveda
+        "rigveda-1", "rigveda-2", "rigveda-3", "rigveda-4", "rigveda-5",
+        "rigveda-6", "rigveda-7", "rigveda-8", "rigveda-9", "rigveda-10",
+        
+        # Upanishads
+        "isha", "kena", "katha", "prashna", "mundaka",
+        "mandukya", "taittiriya", "aitareya", "chandogya", "brihadaranyaka",
+        
+        # Ramayana
+        "ramayana-bala", "ramayana-ayodhya", "ramayana-aranya",
+        "ramayana-kishkindha", "ramayana-sundara", "ramayana-yuddha",
+        "ramayana-uttara",
+    ],
+
+    "talmud": [
+        "berakhot","shabbat", "eruvin", "pesachim", "yoma", "sukkah",
+        "beitzah", "rosh-hashanah", "taanit", "megillah", "moed-katan", "chagigah",
+        "yevamot", "ketubot", "nedarim", "nazir", "sotah", "gittin", "kiddushin",
+        "bava-kamma", "bava-metzia", "bava-batra", "sanhedrin", "makkot",
+        "shevuot", "avodah-zarah", "horayot", "zevachim", "menachot", "chullin",
+        "bekhorot", "arakhin", "temurah", "keritot", "meilah", "tamid", "niddah",
+    ],
+    "mormon": [
+        "1nephi", "2nephi", "jacob", "enos", "jarom", "omni",
+        "wordsofmormon", "mosiah", "alma", "helaman",
+        "3nephi", "4nephi", "mormon", "ether", "moroni",
     ],
 }
 
 _downloaded_cache: dict[str, set[str]] = {}
 
 def _book_on_disk(library: str, book: str) -> bool:
+
+    if library in _downloaded_cache:
+        return book in _downloaded_cache[library]
+
     book_path = os.path.join(PARQUET_DIR, library, book)
     if not os.path.isdir(book_path):
         return False

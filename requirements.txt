@@ -1,6 +1,6 @@
-requests
-python-dotenv
-pyspark
-pyarrow
-pytest
-pytest-asyncio
+requests>=2.31,<3
+python-dotenv>=1.0,<2
+pyspark>=3.5,<4        # requires Java 17 — see README
+pyarrow>=14,<19
+pytest>=8,<9
+pytest-asyncio>=0.23,<1

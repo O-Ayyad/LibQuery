@@ -106,8 +106,14 @@ def main() -> int:
         return 1
 
     cmd = args[0].lower()
+    
+    if cmd == "resolve":
+        if len(args) != 2:
+            print("Usage: resolve <name>", file=sys.stderr)
+            sys.exit(1)
+        print(cmd_resolve(args[1]))
 
-    if cmd == "ls":
+    elif cmd == "ls":
         print(cmd_ls())
 
     elif cmd == "add":

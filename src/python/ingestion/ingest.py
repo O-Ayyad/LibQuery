@@ -8,9 +8,7 @@ from typing import Iterator
 import unicodedata
 import re
 import shutil
-
-
-
+from networking.registry import LIBRARY_BOOKS
 import pyarrow as pa
 import pyarrow.parquet as pq
 from typing import Callable
@@ -31,6 +29,12 @@ SCHEMA = pa.schema([
     pa.field("text",    pa.string()),
     pa.field("lang",    pa.string()),
 ])
+
+
+_HTML_TAG = re.compile(r"<[^>]+>")
+
+def _strip_html(text: str) -> str:
+    return _HTML_TAG.sub("", text).strip()
 
 Row = dict  # keys: library, book, chapter, verse, text, lang
 
@@ -164,20 +168,224 @@ class Quran(Library):
                         "text": en_v["text"].strip(),
                         "lang": "en",
                     }
+class Talmud(Library):
 
+    def __init__(self, book: str | None = None):
+        self._book = book
+
+    @property
+    def name(self) -> str:
+        return "talmud"
+
+    @property
+    def raw_files(self) -> list[str]:
+        if self._book:
+            return [os.path.join(RAW_DATA_DIR, "talmud", f"{self._book}.json")]
+        return [
+            os.path.join(RAW_DATA_DIR, "talmud", f"{b}.json")
+            for b in LIBRARY_BOOKS["talmud"]
+        ]
+
+    def parse(self, book_filter: str | None = None) -> Iterator[Row]:
+            files = (
+                [os.path.join(RAW_DATA_DIR, "talmud", f"{book_filter}.json")]
+                if book_filter else self.raw_files
+            )
+            for path in files:
+                if not os.path.exists(path):
+                    continue
+                tractate_name = os.path.splitext(os.path.basename(path))[0]
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception as e:
+                    print(f"WARNING: could not read {path}: {e}", flush=True)
+                    continue
+                for lang, text_data in (("en", data.get("text", [])),
+                                        ("he", data.get("he", []))):
+                    if not text_data:
+                        continue
+                    daf_idx = 0
+                    for daf in text_data:
+                        if daf is None:
+                            continue
+                        if isinstance(daf, str):
+                            daf = [daf]
+                        if not isinstance(daf, list) or not daf:
+                            continue
+                        daf_idx += 1
+                        for amud_idx, segment in enumerate(daf, start=1):
+                            if not segment or not isinstance(segment, str) or not segment.strip():
+                                continue
+                            clean = _strip_html(segment)
+                            if not clean:
+                                continue
+                            yield {
+                                "library": self.name,
+                                "book":    tractate_name,
+                                "chapter": daf_idx,
+                                "verse":   amud_idx,
+                                "text":    clean,
+                                "lang":    lang,
+                            }
+
+class Hindu(Library):
+
+    def __init__(self, book: str | None = None):
+        self._book = book
+
+    @property
+    def name(self) -> str:
+        return "hindu"
+
+    @property
+    def raw_files(self) -> list[str]:
+        if self._book:
+            return [os.path.join(RAW_DATA_DIR, "hindu", f"{self._book}.json")]
+        return [
+            os.path.join(RAW_DATA_DIR, "hindu", f"{b}.json")
+            for b in LIBRARY_BOOKS["hindu"]
+        ]
+
+    def parse(self, book_filter: str | None = None) -> Iterator[Row]:
+        files = (
+            [os.path.join(RAW_DATA_DIR, "hindu", f"{book_filter}.json")]
+            if book_filter else self.raw_files
+        )
+        for path in files:
+            if not os.path.exists(path):
+                continue
+            book_name = os.path.splitext(os.path.basename(path))[0]
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+
+            if book_name == "bhagavad-gita":
+                yield from self._parse_gita(data, book_name)
+            elif book_name.startswith("rigveda-"):
+                yield from self._parse_rigveda(data, book_name)
+            elif book_name.startswith("ramayana-"):
+                yield from self._parse_ramayana(data, book_name)
+            else:
+                yield from self._parse_upanishad(data, book_name)
+
+    def _parse_gita(self, data: dict, book_name: str) -> Iterator[Row]:
+        for ch_obj in data.get("chapters", []):
+            ch_num = int(ch_obj["chapter"])
+            for v in ch_obj.get("verses", []):
+                verse_num = int(v["verse"])
+                if v.get("shloka"):
+                    yield {
+                        "library": self.name, "book": book_name,
+                        "chapter": ch_num, "verse": verse_num,
+                        "text": v["shloka"].strip(), "lang": "sa",
+                    }
+                if v.get("translation"):
+                    yield {
+                        "library": self.name, "book": book_name,
+                        "chapter": ch_num, "verse": verse_num,
+                        "text": v["translation"].strip(), "lang": "en",
+                    }
+
+    def _parse_rigveda(self, data: dict, book_name: str) -> Iterator[Row]:
+        for hymn in data.get("hymns", []):
+            hymn_num = int(hymn.get("hymn", 0))
+            for v in hymn.get("verses", []):
+                yield {
+                    "library": self.name,
+                    "book": book_name,
+                    "chapter": hymn_num,
+                    "verse": int(v.get("verse", 0)),
+                    "text": v.get("text", "").strip(),
+                    "lang": "en",
+                }
+
+    def _parse_ramayana(self, data: dict, book_name: str) -> Iterator[Row]:
+        for verse in data.get("sargas", []):
+            verse_num = int(verse.get("sarga", 0))
+            for v in verse.get("verses", []):
+                yield {
+                    "library": self.name,
+                    "book": book_name,
+                    "chapter": verse_num,
+                    "verse": int(v.get("verse", 0)),
+                    "text": v.get("text", "").strip(),
+                    "lang":"en",
+                }
+
+    def _parse_upanishad(self, data: dict, book_name: str) -> Iterator[Row]:
+        for ch_obj in data.get("chapters", []):
+            ch_num = int(ch_obj.get("chapter", 0))
+            for v in ch_obj.get("verses", []):
+                yield {
+                    "library": self.name,
+                    "book": book_name,
+                    "chapter": ch_num,
+                    "verse": int(v.get("verse", 0)),
+                    "text": v.get("text", "").strip(),
+                    "lang": "en",
+                }
+
+
+class Mormon(Library):
+
+    def __init__(self, book: str | None = None):
+        self._book = book
+
+    @property
+    def name(self) -> str:
+        return "mormon"
+
+    @property
+    def raw_files(self) -> list[str]:
+        if self._book:
+            return [os.path.join(RAW_DATA_DIR, "mormon", f"{self._book}.json")]
+        return [
+            os.path.join(RAW_DATA_DIR, "mormon", f"{b}.json")
+            for b in LIBRARY_BOOKS["mormon"]
+        ]
+
+    def parse(self, book_filter: str | None = None) -> Iterator[Row]:
+        files = (
+            [os.path.join(RAW_DATA_DIR, "mormon", f"{book_filter}.json")]
+            if book_filter else self.raw_files
+        )
+        for path in files:
+            if not os.path.exists(path):
+                continue
+            book_name = os.path.splitext(os.path.basename(path))[0]
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+
+            for ch_obj in data.get("chapters", []):
+                ch_num = int(ch_obj.get("chapter", 0))
+                for v in ch_obj.get("verses", []):
+                    text = v.get("text", "").strip()
+                    if not text:
+                        continue
+                    yield {
+                        "library": self.name,
+                        "book":    book_name,
+                        "chapter": ch_num,
+                        "verse":   int(v.get("verse", 0)),
+                        "text":    text,
+                        "lang":    "en",
+                    }
 
 
 # Registry 
 # Create library class and register here
 
 LIBRARIES: dict[str, type[Library]] = {
-    "bible": Bible,
-    "quran": Quran,
+    "bible":  Bible,
+    "quran":  Quran,
+    "talmud": Talmud,
+    "hindu":  Hindu,
+    "mormon": Mormon,
 }
 
 # Writer
 
-def _write_parquet(rows: list[Row], library: str, book: str, send=Callable[[str],None]) -> str:
+def _write_parquet(rows: list[Row], library: str, book: str, send:Callable[[str], None]=print) -> str:
     if not rows:
         raise ValueError(f"No rows to write for {library}/{book}")
 
@@ -208,7 +416,7 @@ def _write_parquet(rows: list[Row], library: str, book: str, send=Callable[[str]
     return out_dir
 
 
-def ingest(target: str = "all", send=Callable[[str], None]) -> list[str]:
+def ingest(target: str = "all", send:Callable[[str],None]=print) -> list[str]:
     target = target.lower().strip()
     parts = target.split(":", 1)
     library_key = parts[0]
@@ -231,16 +439,20 @@ def ingest(target: str = "all", send=Callable[[str], None]) -> list[str]:
     out_dirs: list[str] = []
 
     for lib in targets:
+        lib.validate_files()
         current_book: str | None = None
         book_rows: list[Row] = []
 
-        for row in lib.parse(book_filter):
-            if row["book"] != current_book:
-                if book_rows:
-                    out_dirs.append(_write_parquet(book_rows, lib.name, current_book, send))
-                current_book = row["book"]
-                book_rows = []
-            book_rows.append(row)
+        try:
+            for row in lib.parse(book_filter):
+                if row["book"] != current_book:
+                    if book_rows:
+                        out_dirs.append(_write_parquet(book_rows, lib.name, current_book, send))
+                    current_book = row["book"]
+                    book_rows = []
+                book_rows.append(row)
+        except Exception as e:
+            send(f"ERROR: parse failed for {lib.name}/{current_book or '?'}: {e}")
 
         if book_rows:
             out_dirs.append(_write_parquet(book_rows, lib.name, current_book, send))

@@ -23,6 +23,8 @@ import sys
 import signal
 import threading
 from typing import Callable
+from itertools import groupby
+import networking.registry as registry
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -80,6 +82,32 @@ def handle(payload: dict,  send: Callable[[str], None]) -> str:
             threading.Timer(1, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
             
             return "Server shutdown."
+        
+        case "ls":
+            library = payload.get("library", "").lower().strip()
+            registry.scan_downloaded_books()
+            
+            if not library:
+                # No library specified
+                lines = []
+                for lib, books in registry.LIBRARY_BOOKS.items():
+                    done = len(registry.downloaded_books(lib))
+                    total = len(books)
+                    lines.append(f"{lib}: {done}/{total} downloaded")
+                return "\n".join(lines)
+            
+            elif library not in registry.LIBRARY_BOOKS:
+                libs = ", ".join(registry.known_libraries())
+                return f"Unknown library '{library}'. Available: {libs}"
+            
+            else:
+                # Known library list all books
+                lines = [f"{library}: {len(registry.downloaded_books(library))}/{len(registry.LIBRARY_BOOKS[library])} downloaded", "-" * 40]
+                for book in registry.LIBRARY_BOOKS[library]:
+                    status = "YES" if registry.is_downloaded(library, book) else "NO "
+                    lines.append(f"  {status}  {book}")
+                return "\n".join(lines)
+
         case "ping":
             if("quiet" in flags):
                 print("Server has been pinged silently")
@@ -90,12 +118,23 @@ def handle(payload: dict,  send: Callable[[str], None]) -> str:
 
         case "query":
             from query.engine import execute
-            
             try:
+                registry.scan_downloaded_books()
                 rows = execute(payload)
                 return _format_results(rows)
             except FileNotFoundError as e:
-                return f"ERROR: {e}"
+                library = payload.get("library", "").lower().strip()
+                if library not in registry.LIBRARY_BOOKS:
+                    libs = ", ".join(registry.known_libraries())
+                    return f"ERROR: {e}\n\nAvailable libraries: {libs}"
+                else:
+                    lines = [f"ERROR: {e}", "", 
+                             f"{library}: {len(registry.downloaded_books(library))}/{len(registry.LIBRARY_BOOKS[library])} books downloaded", 
+                             "-" * 40]
+                    for book in registry.LIBRARY_BOOKS[library]:
+                        status = "YES" if registry.is_downloaded(library, book) else "NO "
+                        lines.append(f"  {status}  {book}")
+                    return "\n".join(lines)
             except Exception as e:
                 return f"ERROR: query failed : {e}"
 

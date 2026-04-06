@@ -3,6 +3,7 @@ import os
 import sys
 from typing import Any
 from pyspark.sql import SparkSession
+import json
 
 #Allows a single execute(payload) -> list[dict] function that the server calls
 #The payload is the same as what main.c sends over the socket
@@ -13,6 +14,8 @@ from query.sql_builder import build_query, NO_VERSE
 from networking.registry import LIBRARY_BOOKS, is_downloaded
 
 _spark: SparkSession | None = None
+
+_QURAN_SURAHS: dict[int, str] = {i: name for i, name in enumerate(LIBRARY_BOOKS["quran"], 1)}
 
 def _get_spark() -> SparkSession:
     global _spark
@@ -25,26 +28,36 @@ def _get_spark() -> SparkSession:
             .getOrCreate())
     return _spark
 
-def _load_book(spark, library: str, book: str,start_chapter: int = None) -> None:
+def _load_books(spark, library: str, book: str, start_chapter: int, end_chapter: int) -> None:
 
     if library == "quran":
-        from ingestion.fetch import QURAN_SURAHS
-        surahs = {i: name for i, name in enumerate(LIBRARY_BOOKS["quran"], 1)}
-        if start_chapter is None or start_chapter not in surahs:
-            raise ValueError(f"Unknown surah number: {start_chapter}")
-        book_dir = os.path.join(PARQUET_DIR, library, surahs[start_chapter])
+        dirs_to_load: list[str] = []
+        for surah_num in range(start_chapter, end_chapter + 1):
+            surah_name = _QURAN_SURAHS.get(surah_num)
+            if surah_name is None:
+                raise ValueError(f"Unknown surah number: {surah_num}")
+            book_dir = os.path.join(PARQUET_DIR, library, surah_name)
+            if not os.path.exists(book_dir):
+                raise FileNotFoundError(
+                    f"Surah {surah_num} ({surah_name}) not found.\n"
+                    f"Run: libquery download quran"
+                )
+            dirs_to_load.append(book_dir)
+
+        df = spark.read.parquet(*dirs_to_load)
+        df.createOrReplaceTempView("library")
     else:
         book_dir = os.path.join(PARQUET_DIR, library, book)
 
     if not os.path.exists(book_dir):
         raise FileNotFoundError(
-            f"No data for {library}/{book}. \n"
+            f"No data for {library}/{book}.\n"
             f"Run: libquery download {library} {book}"
         )
     spark.read.parquet(book_dir).createOrReplaceTempView("library")
 
 def execute(payload: dict[str, Any]) -> list[dict]:
-    print(payload)
+    print("Executing payload:", json.dumps(payload, indent=2))
     library       = payload["library"].lower()
     book          = payload["book"].lower()
     start_chapter = int(payload.get("start_chapter", 1))
@@ -54,22 +67,22 @@ def execute(payload: dict[str, Any]) -> list[dict]:
     lang          = payload.get("lang", "en")
 
     if library == "quran":
-        surahs = {i: name for i, name in enumerate(LIBRARY_BOOKS["quran"], 1)}
-        book_name = surahs.get(start_chapter)
-        if not book_name or not is_downloaded("quran", book_name):
-            raise FileNotFoundError(
-                f"Surah {start_chapter} not found.\n"
-                f"Run: libquery download quran"
-            )
+        for surah_num in range(start_chapter, end_chapter + 1):
+            surah_name = _QURAN_SURAHS.get(surah_num)
+            if not surah_name or not is_downloaded("quran", surah_name):
+                raise FileNotFoundError(
+                    f"Surah {surah_num} not found.\n"
+                    f"Run: libquery download quran"
+                )
     else:
         if not is_downloaded(library, book):
             raise FileNotFoundError(
                 f"No data for {library}/{book}.\n"
                 f"Run: libquery download {library} {book}"
             )
-        
+
     spark = _get_spark()
-    _load_book(spark, library, book, start_chapter=start_chapter,)
+    _load_books(spark, library, book, start_chapter, end_chapter)
 
     sql = build_query(
         library, book,
@@ -81,5 +94,7 @@ def execute(payload: dict[str, Any]) -> list[dict]:
     )
 
     rows = spark.sql(sql).collect()
-    return [{"chapter": r["chapter"], "verse": r["verse"], "text": r["text"]}
-            for r in rows if r["text"].strip()]
+    return [
+        {"chapter": r["chapter"], "verse": r["verse"], "text": r["text"], "lang": r["lang"]}
+        for r in rows if r["text"].strip()
+    ]

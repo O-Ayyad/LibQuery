@@ -16,16 +16,26 @@ PROJECT_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 RAW_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
 PARQUET_DIR = os.path.join(PROJECT_ROOT, "data", "parquet")
 
-    
+     
 LIBRARY_CONFIG = {
     "bible": {
         "base_url": "https://api.getbible.net/v2/kjv",
         "translation": "kjv",
-        "format":"getbible",   #tells ingest which json shape to expect
     },
     "quran": {
         "arabic_url":  "https://api.alquran.cloud/v1/quran/quran-uthmani",
         "english_url": "https://api.alquran.cloud/v1/quran/en.asad",
-        "format": "alquran",
+    },    
+    "talmud": {
+        "base_url": "https://www.sefaria.org/api/texts",
+    },
+    "hindu": {
+        "gita_base":         "https://bhagavadgita.theaum.org",
+        "dharmic_data_base": "https://raw.githubusercontent.com/bhavykhatri/DharmicData/main",
+        "upanishads_base":   "https://raw.githubusercontent.com/vedicscriptures/upanishads/main",
+
+    },
+    "mormon": {
+        "base_url": "https://raw.githubusercontent.com/BraydenTW/book-of-mormon-api/refs/heads/main/book-of-mormon.json",
     },
 }
