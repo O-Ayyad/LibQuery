@@ -54,7 +54,7 @@ def _format_results(rows: list[dict]) -> str:
 
     return "\n\n".join(lines) if not is_quran else "\n".join(lines)
 
-def handle(payload: dict,  send: Callable[[str], None]) -> str: #Route the payload to the appropriate function
+def handle(payload: dict,  send: Callable[[str], None], ip : str) -> str: #Route the payload to the appropriate function
     cmd = payload.get("cmd","query")
     flags = payload.get("flags",[])
     match cmd:
@@ -78,7 +78,7 @@ def handle(payload: dict,  send: Callable[[str], None]) -> str: #Route the paylo
             except Exception as e:
                 print(f"WARNING: could not destroy token file: {e}", flush=True)\
                 
-            print("Server is closing")
+            print(f"From {ip}: Server is closing")
             threading.Timer(1, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
             
             return "Server shutdown."
@@ -110,10 +110,10 @@ def handle(payload: dict,  send: Callable[[str], None]) -> str: #Route the paylo
 
         case "ping":
             if("quiet" in flags):
-                print("Server has been pinged silently")
+                print(f"From {ip}: Server has been pinged silently")
                 return ""
             from config.settings import PORT
-            print("Server has been pinged")
+            print(f"From {ip}: Server has been pinged")
             return f"Server is online on port: {PORT}"
 
         case "query":

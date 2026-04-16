@@ -157,7 +157,8 @@ char* get_ip() {
     if (!f) return "127.0.0.1";
 
     char buf[1024];
-    fread(buf, 1, sizeof(buf) - 1, f);
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    buf[n] = '\0';
     fclose(f);
 
     char* key = strstr(buf, "\"target_ip\"");
@@ -347,8 +348,16 @@ FILE* run_python(char* path, char* args) { //Run a python script
 #endif
 
     return popen(command, "r");
-    return popen(command, "r");
 }
+
+int is_safe_path(const char *s) {
+    for (const char *p = s; *p; p++) {
+        if (*p == '&' || *p == '|' || *p == '^' || *p == '%')
+            return 0;
+    }
+    return 1;
+}
+
 int host_server() { //Invoke networking server to host the server in a new terminal
     if(server_online()){
         fprintf(stderr, "Error: Server is already running.\n");
@@ -376,22 +385,43 @@ int host_server() { //Invoke networking server to host the server in a new termi
         *slash = '\0';
     }
 
+    if (!is_safe_path(exe_path)) {
+        fprintf(stderr, "Error: unsafe path detected.\n");
+        return 1;
+    }
 #ifdef _WIN32
-snprintf(
-        command, sizeof(command),
+    snprintf(command, sizeof(command),
         "start \"LibQuery Server\" cmd /c \"cd /d %s\\src\\python && python -m networking.server\"",
-        exe_path
-    );
+        exe_path);
 #else
-snprintf(
-    command,
-    sizeof(command),
-    "cd \"%s/src/python\" && "
-    "([ -x \"$(command -v gnome-terminal)\" ] && gnome-terminal -- bash -c \"python3 -m networking.server; exec bash\") || "
-    "([ -x \"$(command -v konsole)\" ] && konsole -e bash -c \"python3 -m networking.server; exec bash\") || "
-    "([ -x \"$(command -v xfce4-terminal)\" ] && xfce4-terminal -e \"bash -c 'python3 -m networking.server; exec bash'\" ) || "
-    "(xterm -e \"python3 -m networking.server\")"
-);
+    char python_dir[4096];
+    snprintf(python_dir, sizeof(python_dir), "%s/src/python", exe_path);
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        chdir(python_dir);
+        execlp("gnome-terminal", "gnome-terminal",
+               "--", "bash", "-c",
+               "python3 -m networking.server; exec bash",
+               NULL);
+        execlp("konsole", "konsole",
+               "-e", "bash", "-c",
+               "python3 -m networking.server; exec bash",
+               NULL);
+        execlp("xfce4-terminal", "xfce4-terminal",
+               "-e", "bash", "-c",
+               "python3 -m networking.server; exec bash",
+               NULL);
+        execlp("xterm", "xterm",
+               "-e", "python3 -m networking.server",
+               NULL);
+
+        perror("Error: no terminal emulator found");
+        exit(1);
+    } else if (pid < 0) {
+        fprintf(stderr, "Error: fork failed.\n");
+        return -2;
+    }
 #endif
 
     int result = system(command);
@@ -450,7 +480,7 @@ int close_server(void)
 
     free(token);
     return send_and_print_local(buf);
-}\
+}
 
 //Restart the server by closing then hosting
 int restart_server(){
@@ -529,7 +559,7 @@ char* resolve_alias(const char *token) { //Local command
     return resolved;
 }
 char* alias(char **args, int argc) { //Local and does not conact server
-    char subcmd[64] = "";
+    char subcmd[1024] = "";
     for (int i = 0; i < argc; i++) {
         strncat(subcmd, args[i], sizeof(subcmd) - strlen(subcmd) - 1);
         if (i < argc - 1)
@@ -585,7 +615,7 @@ char* target_ip(char* payload){
 }
 int query(const char *library, const char *book, bool use_range, Range range){ //Query the server for text
     if(!server_online()){
-        fprintf(stderr,"Server is not online");
+        fprintf(stderr,"Error: Server is not online");
         return 1;
     }
     char payload[1024];
@@ -681,8 +711,19 @@ int hadoop_available(char *project_root) { //Check if hadoop is available
     return 1;
 #endif
 }
+
+int is_valid_name(const char *s) {
+    if (!s || *s == '\0') return 0;
+
+    for (const char *p = s; *p; p++) {
+        if (!isalnum(*p) && *p != '_' && *p != '-') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int main(int argc, char *argv[]){
-  
     if (net_init() != 0) {
         fprintf(stderr, "Error: network initialisation failed.\n");
         return 1;
@@ -707,6 +748,7 @@ int main(int argc, char *argv[]){
             print_welcome();
             break;
         }
+    
 
         if ((argc == 2) && (is_server_command(argv[1]))){
                 
@@ -714,7 +756,7 @@ int main(int argc, char *argv[]){
 
 
             if(command == UNKNOWN){
-                fprintf(stderr, "Unknown command");
+                fprintf(stderr, "Error: Unknown command");
                 break;
             }
             switch(command){                  
@@ -723,20 +765,20 @@ int main(int argc, char *argv[]){
                     break;
                 case CMD_CLOSE:
                     if(!server_online()){
-                        fprintf(stderr, "Server is not online.\n");
+                        fprintf(stderr, "Error: Server is not online.\n");
                         break;
                     }
                     rc=close_server();
                     break;
                 case CMD_RESTART:
                     if(!server_online()){
-                        fprintf(stderr, "Server is not online.\n");
+                        fprintf(stderr, "Error: Server is not online.\n");
                         break;
                     }
                     rc = restart_server();
                     break;
                 default:
-                    fprintf(stderr, "Unknown server command\n");
+                    fprintf(stderr, "Error: Unknown server command\n");
             }   
             break;
         }
@@ -824,6 +866,12 @@ int main(int argc, char *argv[]){
                 rc = 1; 
                 break;
             }
+
+            if (!is_valid_name(library) || !is_valid_name(book)) {
+                fprintf(stderr, "Error: invalid characters in input.\n");
+            return 1;
+            }   
+
             if(strcasecmp(argv[2],"all") == 0){
                 download_all();
                 break;

@@ -2,8 +2,9 @@ from __future__ import annotations
 import os
 import sys
 from typing import Any
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, dataframe
 import json
+import uuid
 
 #Allows a single execute(payload) -> list[dict] function that the server calls
 #The payload is the same as what main.c sends over the socket
@@ -27,8 +28,9 @@ def _get_spark() -> SparkSession:
                     " --add-opens=java.base/sun.nio.ch=ALL-UNNAMED")
             .getOrCreate())
     return _spark
-
-def _load_books(spark, library: str, book: str, start_chapter: int, end_chapter: int) -> None:
+def _load_books(spark: SparkSession, 
+                library: str, book: str, 
+                start_chapter: int, end_chapter: int) -> dataframe:
 
     if library == "quran":
         dirs_to_load: list[str] = []
@@ -43,18 +45,15 @@ def _load_books(spark, library: str, book: str, start_chapter: int, end_chapter:
                     f"Run: libquery download quran"
                 )
             dirs_to_load.append(book_dir)
+        return spark.read.parquet(*dirs_to_load)
 
-        df = spark.read.parquet(*dirs_to_load)
-        df.createOrReplaceTempView("library")
-    else:
-        book_dir = os.path.join(PARQUET_DIR, library, book)
-
+    book_dir = os.path.join(PARQUET_DIR, library, book)
     if not os.path.exists(book_dir):
         raise FileNotFoundError(
             f"No data for {library}/{book}.\n"
             f"Run: libquery download {library} {book}"
         )
-    spark.read.parquet(book_dir).createOrReplaceTempView("library")
+    return spark.read.parquet(book_dir)
 
 def execute(payload: dict[str, Any]) -> list[dict]: # Payload builds SQL query then returns rows to CLI
     print("Executing payload:", json.dumps(payload, indent=2))
@@ -82,18 +81,26 @@ def execute(payload: dict[str, Any]) -> list[dict]: # Payload builds SQL query t
             )
 
     spark = _get_spark()
-    _load_books(spark, library, book, start_chapter, end_chapter)
+    df = _load_books(spark, library, book, start_chapter, end_chapter)
 
-    sql = build_query(
-        library,
-        start_chapter=start_chapter,
-        start_verse=start_verse,
-        end_chapter=end_chapter,
-        end_verse=end_verse,
-        lang=lang,
-    )
+    view_name = f"libq_{uuid.uuid4().hex}"
+    try:
+        df.createTempView(view_name)
 
-    rows = spark.sql(sql).collect()
+        sql = build_query(
+            library,
+            view_name=view_name,
+            start_chapter=start_chapter,
+            start_verse=start_verse,
+            end_chapter=end_chapter,
+            end_verse=end_verse,
+            lang=lang,
+        )
+
+        rows = spark.sql(sql).collect()
+    finally:
+        spark.catalog.dropTempView(view_name)
+
     return [
         {"chapter": r["chapter"], "verse": r["verse"], "text": r["text"], "lang": r["lang"]}
         for r in rows if r["text"].strip()

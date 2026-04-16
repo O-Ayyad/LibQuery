@@ -68,10 +68,46 @@ async def _async_write(writer: asyncio.StreamWriter, msg: str) -> None:
     writer.write(msg.encode("utf-8"))
     await writer.drain()
 
+_rate_table = {}
+
+RATE_LIMIT = 30
+WINDOW_SEC = 30
+
+def _rate_limited(ip: str) -> bool: # Return true if rate limited
+    import time
+    if(ip == "127.0.0.1"): return False #Dont rate limit local host
+    if ip is None or ip == "unknown":
+        return True
+    now = time.time()
+    window_start = now - WINDOW_SEC
+
+    history = _rate_table.get(ip, [])
+
+    history = [t for t in history if t > window_start]
+
+    if len(history) >= RATE_LIMIT:
+        _rate_table[ip] = history
+        return True
+
+    history.append(now)
+    _rate_table[ip] = history
+    return False
+    
 async def _handle_connection(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ) -> None:
+    
+    peer = writer.get_extra_info("peername")
+    client_ip = peer[0] if peer else "unknown"
+
+    if _rate_limited(client_ip):
+        writer.write(b"ERROR: rate limit exceeded\n")
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        return
+        
     async with _semaphore:
         try:
             # Read until the client closes the write
@@ -86,14 +122,13 @@ async def _handle_connection(
             else:
                 # handle() is synchronous
                 loop = asyncio.get_running_loop()
-
                 def send(msg) -> None: # Sends a message while C send_and_print functions is in while loop
                     print(msg)
                     future = asyncio.run_coroutine_threadsafe(
                         _async_write(writer, msg+"\n"), loop
                     )
                     future.result()
-                result = await loop.run_in_executor(None, lambda: handle(payload, send))
+                result = await loop.run_in_executor(None, lambda: handle(payload, send, client_ip))
 
             writer.write(result.encode("utf-8"))
             await writer.drain()

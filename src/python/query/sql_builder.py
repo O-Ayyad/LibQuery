@@ -3,6 +3,8 @@ import re
 
 NO_VERSE = -1  # mirrors the C constant
 _SAFE_IDENTIFIER = re.compile(r'^[a-z0-9_\-]{1,64}$')
+_SAFE_VIEW_NAME  = re.compile(r'^[a-z0-9_]{1,128}$')
+
 def _safe(value: str, field: str) -> str:
     if not _SAFE_IDENTIFIER.match(value):
         raise ValueError(
@@ -11,6 +13,11 @@ def _safe(value: str, field: str) -> str:
         )
     return value
 
+def _safe_view(name: str) -> str:
+    if not _SAFE_VIEW_NAME.match(name):
+        raise ValueError(f"Invalid view name '{name}'")
+    
+    return name
 def build_query(
     library: str,
     start_chapter: int,
@@ -18,10 +25,12 @@ def build_query(
     end_chapter: int | None = None,
     end_verse: int = NO_VERSE,
     lang: str | None = None,
+    view_name: str = "library",
 ) -> str:
     # default end_chapter = start_chapter
 
     library = _safe(library.lower(), "library")
+    view_name = _safe_view(view_name)
 
     if end_chapter is None:
         end_chapter = start_chapter
@@ -67,14 +76,14 @@ def build_query(
 
     if lang is None:
         sql = (
-            f"SELECT chapter, verse, text, lang FROM library "
+            f"SELECT chapter, verse, text, lang FROM {view_name} "
             f"WHERE {where_clause} "
             f"ORDER BY chapter, verse, CASE WHEN lang = 'en' THEN 1 ELSE 0 END"
         )
     else:
         lang = _safe(lang.lower(), "lang")
         sql = (
-            f"SELECT chapter, verse, text, lang FROM library "
+            f"SELECT chapter, verse, text, lang FROM {view_name} "
             f"WHERE {where_clause} AND lang = '{lang}' "
             f"ORDER BY chapter, verse"
         )
