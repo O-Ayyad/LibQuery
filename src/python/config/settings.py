@@ -8,6 +8,11 @@ ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 RAW_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
 
 load_dotenv()
+
+_hdfs_user = os.getenv("LIBQUERY_HDFS_USER")
+if _hdfs_user:
+    os.environ["HADOOP_USER_NAME"] = _hdfs_user
+
 class EnvConfigs:
     def __init__(self):
 
@@ -22,6 +27,7 @@ class EnvConfigs:
         self.HDFS_HOST = os.getenv("LIBQUERY_HDFS_HOST", "localhost")
         self.HDFS_PORT = int(os.getenv("LIBQUERY_HDFS_PORT", "9000"))
         self.HDFS_USER = os.getenv("LIBQUERY_HDFS_USER") or None
+        self.HDFS_WEBHDFS_PORT = int(os.getenv("LIBQUERY_HDFS_WEBHDFS_PORT", "9870"))
         
         _default_parquet = (
             "/libquery/parquet"
@@ -50,6 +56,7 @@ SPARK_APP = config.SPARK_APP
 USE_HDFS = config.USE_HDFS
 HDFS_HOST = config.HDFS_HOST
 HDFS_PORT = config.HDFS_PORT
+HDFS_WEBHDFS_PORT = config.HDFS_WEBHDFS_PORT
 HDFS_USER = config.HDFS_USER
 
 PARQUET_DIR = config.PARQUET_DIR

@@ -404,6 +404,11 @@ libquery target local            # Point to localhost 127.0.0.1
 libquery/
 ├── Makefile
 ├── requirements.txt
+├── docker-compose.yml
+├── hadoop-config/
+│   ├── core-site.xml
+│   ├── hdfs-site.xml
+│   └── log4j.properties
 ├── src/
 │   ├── c/
 │   │   ├── main.c                CLI entry point, socket client, command dispatch
@@ -411,7 +416,8 @@ libquery/
 │   │   └── parser_funcs.h        Shared types: Position, Range
 │   └── python/
 │       ├── config/
-│       │   └── settings.py       Server host/port, paths, API URLs
+│       │   ├── settings.py       Server host/port, paths, API URLs
+│	│   └── storage.py        Filesystem abstraction (local or HDFS via WebHDFS)
 │       ├── ingestion/
 │       │   ├── fetch.py          Downloads raw data from external APIs
 │       │   └── ingest.py         Parses raw JSON/CSV to Parquet via PyArrow
@@ -425,14 +431,12 @@ libquery/
 │       └── query/
 │           ├── engine.py         Spark session, loads Parquet, runs SQL
 │           └── sql_builder.py    Builds SQL WHERE clauses from range parameters
+├── hadoop/
+│   └── <Place bin here for Windows>    
 └── data/
     ├── raw/                      Downloaded JSON/CSV (temporary, cleaned after ingest)
-    ├── parquet/                  Processed Parquet files : the actual database
-    │   ├── bible/genesis/
-    │   ├── quran/al-baqara/
-    │   ├── talmud/berakhot/
-    │   ├── hindu/bhagavadgita/
-    │   └── mormon/1nephi/
+    ├── parquet/                  Processed Parquet files : the actual database (local. unused when HDFS enabled)
+    │   └── <libraries/books>
     ├── serverdata/               Runtime files 
     └── userdata/                 User config (aliases.json, networking_config.json)
 ```
@@ -460,7 +464,7 @@ libquery <args>
             ├── cmd: download → fetch.py → ingest.py → Parquet
             ├── cmd: ping   → "Server is online on port: 9237"
             ├── cmd: ls     → registry.py → book/download status
-            └── cmd: close  → graceful shutdown (token-authenticated)
+            └── cmd: close  → shutdown 
 ```
 
 **Data flow for a query:**
@@ -475,7 +479,7 @@ libquery <args>
 **Data flow for a download:**
 1. `fetch.py` downloads raw JSON or CSV from the external API
 2. `ingest.py` parses it into normalised rows `(library, book, chapter, verse, text, lang)`
-3. PyArrow writes the rows to a Parquet dataset at `data/parquet/<library>/<book>/`
+3. PyArrow writes the rows to a Parquet dataset at `data/parquet/<library>/<book>/` or via WebHDFS
 4. Raw files are deleted after successful ingest
 5. `registry.py` scans the disk on the next query to detect newly available books
 
@@ -504,10 +508,49 @@ Download Java 17 from: https://adoptium.net/temurin/releases/?version=17
 
 ### Hadoop winutils
 
-A full install of Hadoop is required and Windows requires additonal setup. Follow the guide below to install Hadoop:
+Winutils is required for both local and HDFS. Install winutils here and place the bin folder in libquery/hadoop/
 
-https://gist.github.com/vorpal56/5e2b67b6be3a827b85ac82a63a5b3b2e
+https://github.com/cdarlint/winutils
 
+### HDFS Setup (Optional)
+
+By default LibQuery stores Parquet files on local disk. You can switch to HDFS
+using Docker by editing the default .env file created upon hosting the server.
+
+LibQuery will use HDFS is LIBQUERY_USE_HDFS in .env is set to true. 
+
+**Requirements**
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with Hyper-V
+
+**1. Add to your hosts file** (`C:\Windows\System32\drivers\etc\hosts`, open as Administrator):
+```
+127.0.0.1 namenode
+127.0.0.1 datanode
+```
+*2. Start the cluster:**
+```bash
+docker compose up -d
+```
+Verify it is running at http://localhost:9870
+
+**3. Start LibQuery normally:**
+```bash
+libquery host
+```
+
+To stop the cluster:
+```bash
+docker compose down
+```
+
+To wipe all data:
+```bash
+docker compose down -v
+```
+
+> **Note:** The Docker cluster must be running before starting the LibQuery server when `LIBQUERY_USE_HDFS=true`.
+> `docker compose up -d` must be executed before `libquery host`. 
+> LibQuery does not start Docker automatically.
 
 ### Terminal and Unicode
 

@@ -30,10 +30,10 @@ def _get_spark() -> SparkSession:
                     " --add-opens=java.base/sun.nio.ch=ALL-UNNAMED"))
 
         if USE_HDFS:
-            builder = builder.config(
-                "spark.hadoop.fs.defaultFS",
-                f"hdfs://{HDFS_HOST}:{HDFS_PORT}"
-            )
+            builder = builder \
+                .config("spark.hadoop.fs.defaultFS", f"hdfs://{HDFS_HOST}:{HDFS_PORT}") \
+                .config("spark.hadoop.dfs.client.use.datanode.hostname", "true") \
+                .config("spark.hadoop.dfs.datanode.use.datanode.hostname", "true")
         _spark = builder.getOrCreate()
     return _spark
 

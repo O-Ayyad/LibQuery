@@ -85,7 +85,8 @@ LIBQUERY_SPARK_MASTER=local[*]
 LIBQUERY_USE_HDFS=false
 LIBQUERY_HDFS_HOST=localhost
 LIBQUERY_HDFS_PORT=9000
-LIBQUERY_HDFS_USER=
+LIBQUERY_HDFS_WEBHDFS_PORT=9870
+LIBQUERY_HDFS_USER=root
 
 LIBQUERY_PARQUET_DIR=./data/parquet
 """
@@ -100,8 +101,15 @@ _rate_table = {}
 
 RATE_LIMIT = 30
 WINDOW_SEC = 30
+def _prune_rate_table():
+    import time
+    window_start = time.time() - WINDOW_SEC
+    for ip in list(_rate_table.keys()):
+        _rate_table[ip] = [t for t in _rate_table[ip] if t > window_start]
+        if not _rate_table[ip]:
+            del _rate_table[ip]
 
-async def _prune_loop() -> None:
+async def _prune_loop():
     while True:
         await asyncio.sleep(60)
         _prune_rate_table()

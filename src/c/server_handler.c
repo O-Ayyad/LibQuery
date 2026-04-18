@@ -80,7 +80,7 @@ int host_server(void)
 
 #ifdef _WIN32
     snprintf(command, sizeof(command),
-        "start \"LibQuery Server\" cmd /k "
+        "start \"LibQuery Server\" cmd /c "
         "\"cd /d %s\\src\\python && python -m networking.server\"",
         exe_path);
 

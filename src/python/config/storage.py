@@ -7,26 +7,28 @@ import pyarrow.fs as pa_fs
 from config.settings import (
     USE_HDFS,
     HDFS_HOST,
-    HDFS_PORT,
+    HDFS_WEBHDFS_PORT,
     HDFS_USER,
     PARQUET_DIR,
 )
  
 # All code that needs to read or write Parquet data goes through here
 _fs: pa_fs.FileSystem | None = None #singleton
- 
+_fsspec_fs = None
  
 def get_fs() -> pa_fs.FileSystem:
-    #Returns in use file system
-    global _fs
+    #Returns the inuse file syste,
+    global _fs, _fsspec_fs
     if _fs is None:
         if USE_HDFS:
-            kwargs: dict = {"host": HDFS_HOST, "port": HDFS_PORT}
+            import fsspec
+            kwargs: dict = {"host": HDFS_HOST, "port": HDFS_WEBHDFS_PORT}
             if HDFS_USER:
                 kwargs["user"] = HDFS_USER
-            _fs = pa_fs.HadoopFileSystem(**kwargs)
+            _fsspec_fs = fsspec.filesystem("webhdfs", **kwargs)
+            _fs = pa_fs.PyFileSystem(pa_fs.FSSpecHandler(_fsspec_fs))
             print(
-                f"[storage] HDFS filesystem: {HDFS_HOST}:{HDFS_PORT}"
+                f"[storage] WebHDFS filesystem: {HDFS_HOST}:{HDFS_WEBHDFS_PORT}"
                 + (f" user={HDFS_USER}" if HDFS_USER else ""),
                 flush=True,
             )
@@ -34,7 +36,6 @@ def get_fs() -> pa_fs.FileSystem:
             _fs = pa_fs.LocalFileSystem()
             print("[storage] Local filesystem.", flush=True)
     return _fs
-
 def book_path(library: str, book: str) -> str:
     return posixpath.join(PARQUET_DIR, library, book)
  
