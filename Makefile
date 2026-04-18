@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -Isrc/c
-SRCS = src/c/main.c src/c/parser.c
+SRCS = src/c/*.c
 TARGET = libquery
 
 ifeq ($(OS),Windows_NT)

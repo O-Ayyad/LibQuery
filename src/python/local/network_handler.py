@@ -32,10 +32,10 @@ def main():
     args = sys.argv[1:]
     if not args:
 
-        print("Error: no command provided.", file=sys.stderr)
+        print("[network_handler] Error: no command provided.", file=sys.stderr)
         return 
     if len(args) > 2:
-        print("Error: too many arguments.", file=sys.stderr)
+        print("[network_handler] Error: too many arguments.", file=sys.stderr)
         return
     cmd = args[0].lower()
     if cmd == "target":
@@ -62,7 +62,7 @@ def main():
 
         elif not is_ipv4(ip):
             print(
-                f"Error: '{ip}' is not a valid IPv4 address. "
+                f"[network_handler] Error: '{ip}' is not a valid IPv4 address. "
                 "(format w.x.y.z where w,x,y,z are integers 0–255)",file=sys.stderr)
             return
         

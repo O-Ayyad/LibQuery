@@ -7,7 +7,6 @@ from abc import ABC, abstractmethod
 from typing import Iterator
 import unicodedata
 import re
-import shutil
 from networking.registry import LIBRARY_BOOKS
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -15,7 +14,8 @@ from typing import Callable
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from config.settings import RAW_DATA_DIR, PARQUET_DIR
+from config.settings import RAW_DATA_DIR
+from config.storage import get_fs, book_path, rmdir, mkdirs
 
 # ---------------------------------------------------------------------------
 # Schema / Row
@@ -390,14 +390,14 @@ def _write_parquet(rows: list[Row], library: str, book: str, send:Callable[[str]
         schema=SCHEMA,
     )
 
-    out_dir = os.path.join(PARQUET_DIR, library, book)
-    if os.path.exists(out_dir):
-        shutil.rmtree(out_dir)
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = book_path(library, book)
+    rmdir(out_dir)
+    mkdirs(out_dir)
 
     pq.write_to_dataset(
         table,
         root_path=out_dir,
+        filesystem=get_fs(),
         compression="snappy",
         existing_data_behavior="overwrite_or_ignore",
     )
@@ -441,7 +441,7 @@ def ingest(target: str = "all", send:Callable[[str],None]=print) -> list[str]:
                     book_rows = []
                 book_rows.append(row)
         except Exception as e:
-            send(f"ERROR: parse failed for {lib.name}/{current_book or '?'}: {e}")
+            send(f"[ingest] ERROR: parse failed for {lib.name}/{current_book or '?'}: {e}")
 
         if book_rows:
             out_dirs.append(_write_parquet(book_rows, lib.name, current_book, send))

@@ -4,8 +4,8 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from config.settings import PARQUET_DIR
+sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), "..", ".."))
+from config.storage import isdir, has_parquet, library_path, book_path
 
 LIBRARY_BOOKS: dict[str, list[str]] = {
     "bible": [
@@ -79,14 +79,7 @@ def _book_on_disk(library: str, book: str) -> bool:
     if library in _downloaded_cache:
         return book in _downloaded_cache[library]
 
-    book_path = os.path.join(PARQUET_DIR, library, book)
-    if not os.path.isdir(book_path):
-        return False
-
-    for f in os.listdir(book_path):
-        if f.endswith(".parquet") and os.path.isfile(os.path.join(book_path, f)):
-            return True
-    return False
+    return has_parquet(book_path(library, book))
 
 def is_downloaded(library: str, book: str | None = None) -> bool:
 
@@ -126,15 +119,13 @@ def scan_downloaded_books(): #Scan dirs to see which books exist
     global _downloaded_cache
     _downloaded_cache = {}
     for library in LIBRARY_BOOKS:
-        path = os.path.join(PARQUET_DIR, library)
-        if not os.path.isdir(path):
+        lib_path = library_path(library)
+        if not isdir(lib_path):
             _downloaded_cache[library] = set()
             continue
         _downloaded_cache[library] = {
             b for b in LIBRARY_BOOKS[library]
-            if os.path.isdir(os.path.join(path, b)) and any(
-                f.endswith(".parquet") for f in os.listdir(os.path.join(path, b))
-            )
+            if has_parquet(book_path(library, b))
         }
 
 def ls() -> str: #List all books and download status

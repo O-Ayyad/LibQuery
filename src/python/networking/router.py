@@ -63,6 +63,7 @@ def handle(payload: dict,  send: Callable[[str], None], ip : str) -> str: #Route
             good_token = valid_token(payload.get("token",""))
             if(not good_token):
                 return (
+                    "[router]"
                     "ERROR: permission denied\n"
                     "       The token sent does not match the one generated at server startup.\n"
                     "       This can happen if:\n"
@@ -126,9 +127,9 @@ def handle(payload: dict,  send: Callable[[str], None], ip : str) -> str: #Route
                 library = payload.get("library", "").lower().strip()
                 if library not in registry.LIBRARY_BOOKS:
                     libs = ", ".join(registry.known_libraries())
-                    return f"ERROR: {e}\n\nAvailable libraries: {libs}"
+                    return f"[router] ERROR: {e}\n\nAvailable libraries: {libs}"
                 else:
-                    lines = [f"ERROR: {e}", "", 
+                    lines = [f"[router] ERROR: {e}", "", 
                              f"{library}: {len(registry.downloaded_books(library))}/{len(registry.LIBRARY_BOOKS[library])} books downloaded", 
                              "-" * 40]
                     for book in registry.LIBRARY_BOOKS[library]:
@@ -136,19 +137,27 @@ def handle(payload: dict,  send: Callable[[str], None], ip : str) -> str: #Route
                         lines.append(f"  {status}  {book}")
                     return "\n".join(lines)
             except Exception as e:
-                return f"ERROR: query failed : {e}"
+                return f"[router] ERROR: query failed : {e}"
 
         case "download":
             from ingestion.fetch import fetch
+            from ingestion.ingest import ingest
+            from ingestion.fetch import _cleanup_raw
+
             library = payload.get("library")
             book = payload.get("book")
             try:
                 saved = fetch(library, book, send)
                 if not saved:
-                    return f"ERROR: nothing downloaded for {library}/{book or 'all'}\n Library or book may not exist"
-                            
-                return f"OK: downloaded and ingested {library}/{book or 'all'}"
+                    return f"[router] ERROR: nothing downloaded for {library}/{book or 'all'}\n Library or book may not exist"
+                
+                ingested = ingest(f"{library}:{book}" if book else library, send)
+                if not ingested:
+                    return f"[router] ERROR: fetch succeeded but ingest produced nothing"
+                return f"OK: downloaded and ingested {library}/{book or 'all'}"        
             except Exception as e:
-                return f"ERROR: {e}"
+                return f"[router] ERROR: {e}"
+            finally:
+                _cleanup_raw(library)
     return f"""ERROR: unknown command '{cmd}' 
             Use Libquery help for commands"""

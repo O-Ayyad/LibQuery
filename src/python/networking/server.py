@@ -22,7 +22,7 @@ import networking.registry as registry
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from config.settings import HOST, PORT, MAX_CONCURRENT_QUERIES
 from networking.router import handle
-
+from config.settings import ENV_PATH
 
 _semaphore: asyncio.Semaphore | None = None
 
@@ -64,14 +64,47 @@ def _handle_signal(sig, frame) -> None:
     print(f"\nSignal {sig} received, shutting down...", flush=True)
     destroy_admin_token()
     sys.exit(0)
+    
 async def _async_write(writer: asyncio.StreamWriter, msg: str) -> None:
     writer.write(msg.encode("utf-8"))
     await writer.drain()
 
+def _check_default_env():
+    if os.path.exists(ENV_PATH):
+        return
+    print("Creating default .env file")
+
+    content = f"""# Auto-generated LibQuery config
+
+LIBQUERY_HOST=0.0.0.0
+LIBQUERY_PORT=9237
+LIBQUERY_MAX_CONNS=100
+
+LIBQUERY_SPARK_MASTER=local[*]
+
+LIBQUERY_USE_HDFS=false
+LIBQUERY_HDFS_HOST=localhost
+LIBQUERY_HDFS_PORT=9000
+LIBQUERY_HDFS_USER=
+
+LIBQUERY_PARQUET_DIR=./data/parquet
+"""
+
+    with open(ENV_PATH, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    print(f"SUCCESS: Created default .env at {ENV_PATH}")
+
+# Rate limiting
 _rate_table = {}
 
 RATE_LIMIT = 30
 WINDOW_SEC = 30
+
+async def _prune_loop() -> None:
+    while True:
+        await asyncio.sleep(60)
+        _prune_rate_table()
 
 def _rate_limited(ip: str) -> bool: # Return true if rate limited
     import time
@@ -92,23 +125,25 @@ def _rate_limited(ip: str) -> bool: # Return true if rate limited
     history.append(now)
     _rate_table[ip] = history
     return False
-    
+
 async def _handle_connection(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ) -> None:
-    
+    global _connection_counter
+
     peer = writer.get_extra_info("peername")
     client_ip = peer[0] if peer else "unknown"
 
     if _rate_limited(client_ip):
-        writer.write(b"ERROR: rate limit exceeded\n")
+        writer.write(b"[server] ERROR: rate limit exceeded\n")
         await writer.drain()
         writer.close()
         await writer.wait_closed()
         return
-        
+    
     async with _semaphore:
+    
         try:
             # Read until the client closes the write
             raw = await reader.read(65536)
@@ -118,23 +153,28 @@ async def _handle_connection(
             try:
                 payload = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError as e:
-                result = f"ERROR: malformed JSON : {e}"
+                result = f"[server] ERROR: malformed JSON : {e}"
             else:
                 # handle() is synchronous
                 loop = asyncio.get_running_loop()
+
                 def send(msg) -> None: # Sends a message while C send_and_print functions is in while loop
-                    print(msg)
                     future = asyncio.run_coroutine_threadsafe(
-                        _async_write(writer, msg+"\n"), loop
+                        _async_write(writer, msg + "\n"), loop
                     )
-                    future.result()
+                    try:
+                        future.result(timeout=10)
+                    except Exception:
+                        pass
+
                 result = await loop.run_in_executor(None, lambda: handle(payload, send, client_ip))
 
-            writer.write(result.encode("utf-8"))
-            await writer.drain()
+                if result:
+                    writer.write(result.encode("utf-8"))
+                    await writer.drain()
 
         except Exception as e:
-            writer.write(f"ERROR: server exception : {e}".encode("utf-8"))
+            writer.write(f"[server] ERROR: server exception : {e}".encode("utf-8"))
             await writer.drain()
         finally:
             writer.close()
@@ -143,14 +183,20 @@ async def _handle_connection(
             except Exception:
                 pass
             
-def _configure_hadoop():
-    if sys.platform != "win32":
-        return
-    
+def _configure_hadoop() -> None:
+    from config.settings import USE_HDFS
+    if sys.platform == "win32":
+        _configure_winutils()
+
+    # in HDFS mode we need to locate an installed Hadoop and its conf dir so Spark can resolve hdfs:// URIs
+    if USE_HDFS:
+        _configure_hdfs_env()
+
+
+def _configure_winutils() -> None:
     project_root = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", "..")
     )
-
     hadoop_bin = os.path.join(project_root, "hadoop", "bin")
     winutils   = os.path.join(hadoop_bin, "winutils.exe")
 
@@ -159,8 +205,67 @@ def _configure_hadoop():
         return
 
     os.environ["HADOOP_HOME"] = os.path.join(project_root, "hadoop")
-    os.environ["PATH"]= hadoop_bin + os.pathsep + os.environ["PATH"]
-    print(f"Hadoop configured: {project_root}\\hadoop", flush=True)
+    os.environ["PATH"] = hadoop_bin + os.pathsep + os.environ["PATH"]
+    print(f"Hadoop (winutils) configured: {project_root}\\hadoop", flush=True)
+
+
+def _configure_hdfs_env():
+
+    is_windows = sys.platform == "win32"
+
+    if is_windows:
+        home_candidates = [
+            os.environ.get("HADOOP_HOME"),
+            r"C:\hadoop",
+            r"C:\tools\hadoop",
+            r"C:\Program Files\Hadoop",
+        ]
+    else:
+        home_candidates = [
+            os.environ.get("HADOOP_HOME"),
+            "/usr/local/hadoop",
+            "/opt/hadoop",
+            "/usr/hadoop",
+            "/usr/lib/hadoop",
+        ]
+
+    hadoop_home = None
+
+    for c in home_candidates:
+        if c and os.path.isdir(c):
+            hadoop_home = c
+            break
+    if hadoop_home:
+        os.environ["HADOOP_HOME"] = hadoop_home
+        bin_dir = os.path.join(hadoop_home, "bin")
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
+        print(f"HADOOP_HOME: {hadoop_home}", flush=True)
+    else:
+        print(
+            "WARNING: HADOOP_HOME not found on this machine. "
+            "Spark will connect to HDFS through spark.hadoop.fs.defaultFS only.",
+            flush=True,
+        )
+
+    conf_candidates = [
+        os.environ.get("HADOOP_CONF_DIR"),
+        os.path.join(hadoop_home, "etc", "hadoop") if hadoop_home else None,
+        "/etc/hadoop/conf",
+        "/usr/local/hadoop/etc/hadoop",
+        "/usr/lib/hadoop/etc/hadoop",
+    ]
+    conf_dir = next(
+        (c for c in conf_candidates if c and os.path.isdir(c)), None
+    )
+    if conf_dir:
+        os.environ["HADOOP_CONF_DIR"] = conf_dir
+        print(f"HADOOP_CONF_DIR: {conf_dir}", flush=True)
+    else:
+        print(
+            "WARNING: HADOOP_CONF_DIR not found. "
+            "NameNode address will be taken from LIBQUERY_HDFS_HOST / LIBQUERY_HDFS_PORT.",
+            flush=True,
+        )
 import subprocess
 
 def configure_java() -> bool:
@@ -263,6 +368,7 @@ async def _run() -> None:
         print(f"       Then restart the server.", flush=True)
         sys.exit(1)
 
+    _check_default_env()
     print("Initialising Spark...", flush=True)
     _configure_hadoop()
     print("Hadoop ready.", flush=True)
@@ -280,7 +386,15 @@ async def _run() -> None:
     print(f"Server is ready and running!")
 
     async with server:
-        await server.serve_forever()
+        prune_task = asyncio.create_task(_prune_loop())
+        try:
+            await server.serve_forever()
+        finally:
+            prune_task.cancel()
+            try:
+                await prune_task
+            except asyncio.CancelledError:
+                pass
 
 
 if __name__ == "__main__":
@@ -289,6 +403,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nServer stopped.")
     except Exception as e:
-        print(f"\nFatal error: {e}")
+        print(f"\n[server] Fatal error: {e}")
     finally:
-        input("\nPress Enter to exit...")
+        destroy_admin_token()
+        if sys.stdout.isatty():
+            input("\nPress Enter to exit...")

@@ -216,7 +216,6 @@ def _fetch_ramayana(kandas_needed: list[str], send: Callable[[str], None]) -> li
             continue
         path = _save("hindu", f"ramayana-{kanda_num}", {"slokas": rows})
         saved.append(path)
-        ingest(f"hindu:ramayana-{kanda_num}", send)
         send(f"  Ramayana kanda {kanda_num} done ({len(rows)} slokas)")
 
     return saved
@@ -234,7 +233,6 @@ def _fetch_gita(send: Callable[[str], None]) -> list[str]:
         time.sleep(0.3)
 
     path = _save("hindu", "bhagavadgita", {"chapters": chapters})
-    ingest("hindu:bhagavadgita", send)
     return [path]
 #  _____________________________________________________________________________________________________ TALMUD
 #  _____________________________________________________________________________________________________ TALMUD
@@ -263,12 +261,10 @@ def fetch_talmud(book: str | None = None, send: Callable[[str], None] = print) -
             data = _fetch_talmud_tractate(base_url, tractate, sefaria_ref, send)
             path = _save("talmud", tractate, data)
             saved.append(path)
-            ingest(f"talmud:{tractate}", send)
             time.sleep(0.5)
         except requests.RequestException as e:
             raise ValueError(f"  Error fetching {tractate}: {e}")
 
-    _cleanup_raw("talmud")
     return saved
 
 
@@ -348,8 +344,6 @@ def fetch_mormon(book: str | None = None, send: Callable[[str], None] = print) -
 
         path = _save("mormon", registry_name, book_data)
         saved.append(path)
-        ingest(f"mormon:{registry_name}", send)
-    _cleanup_raw("mormon")
     return saved
 
 #  _____________________________________________________________________________________________________ BIBLE
@@ -376,7 +370,6 @@ def fetch_bible(book: str | None = None, send: Callable[[str], None] = print) ->
 
         saved_path = _save("bible", "bible", r.json())
         saved.append(saved_path)
-        ingest("bible", send)
         send(f"Bible download complete -> {saved_path}")
 
     else:
@@ -405,9 +398,7 @@ def fetch_bible(book: str | None = None, send: Callable[[str], None] = print) ->
 
         saved_path = _save("bible", book_key, r.json())
         saved.append(saved_path)
-        ingest(f"bible:{book_key}", send)
         send(f"Book '{book_key}' download complete -> {saved_path}")
-    _cleanup_raw("bible")
     return saved
 #  _____________________________________________________________________________________________________ QURAN
 #  _____________________________________________________________________________________________________ QURAN
@@ -435,9 +426,7 @@ def fetch_quran(send: Callable[[str], None] = print) -> list[str]:
     r.raise_for_status()
 
     path_en = _save("quran", "english_asad", r.json())
-    send("Done fetching Quran in English")
-    ingest("quran",send) 
-    _cleanup_raw("quran")
+    send("Done fetching Quran in English") 
 
     return [path_ar, path_en]
     
@@ -447,7 +436,10 @@ def fetch(library: str, book: str | None = None, send: Callable[[str], None] = p
     if library == "all":
         saved = []
         for lib in ["bible", "quran", "talmud", "hindu", "mormon"]:
-            saved += fetch(lib, None, send)
+            try:
+                saved += fetch(lib, None, send)
+            except Exception as e:
+                send(f"[fetch] ERROR: failed to fetch {lib}: {e}")
         return saved
     
     if library == "bible":

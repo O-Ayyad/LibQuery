@@ -77,15 +77,15 @@ def cmd_ls() -> str: #List all aliases
 
 def cmd_add(target: str, alias_name: str) -> str:
     if alias_name in RESERVED:
-        return f"Error: '{alias_name}' is a reserved name."
+        return f"[alias_handeler] Error: '{alias_name}' is a reserved name."
 
     aliases = load()
 
     if alias_name in aliases:
-        return f"Alias '{alias_name}' already exists for '{aliases[alias_name]}'."
+        return f"[alias_handeler] Error: Alias '{alias_name}' already exists for '{aliases[alias_name]}'."
     
     if alias_name in HARDCODED_ALIASES:
-        return f"Error: '{alias_name}' is a builtin alias for '{HARDCODED_ALIASES[alias_name]}' and cannot be overwritten."
+        return f"[alias_handeler] Error: '{alias_name}' is a builtin alias for '{HARDCODED_ALIASES[alias_name]}' and cannot be overwritten."
 
 
     aliases[alias_name] = target
@@ -101,7 +101,7 @@ def cmd_rm(target: str) -> str:
         return "Removed all aliases."
 
     if target not in aliases:
-        return f"Alias '{target}' not found."
+        return f"[alias_handeler] Error: Alias '{target}' not found."
 
     del aliases[target]
     save(aliases)
@@ -119,7 +119,7 @@ def main() -> int:
     args = sys.argv[1:]
 
     if not args:
-        print("Error: no command provided.", file=sys.stderr)
+        print("[alias_handeler] Error: no command provided.", file=sys.stderr)
         return 1
 
     cmd = args[0].lower()
@@ -146,7 +146,7 @@ def main() -> int:
         print(cmd_rm(args[1]))
 
     else:
-        print(f"Error: unknown command '{cmd}'.", file=sys.stderr)
+        print(f"[alias_handeler] Error: unknown command '{cmd}'.", file=sys.stderr)
         sys.exit(1)
 
 
