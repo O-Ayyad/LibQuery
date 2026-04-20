@@ -128,19 +128,33 @@ def scan_downloaded_books(): #Scan dirs to see which books exist
             if has_parquet(book_path(library, b))
         }
 
-def ls() -> str: #List all books and download status
+def ls(library :str |None = None) -> str: #List all books and download status
+    
+    scan_downloaded_books() 
+    if not library:
+        lines = []
+        for lib, books in LIBRARY_BOOKS.items():
+            done = len(downloaded_books(lib))
+            total = len(books)
+            lines.append(f"{lib}: {done}/{total} downloaded")
+        return "\n".join(lines)
 
-    if not LIBRARY_BOOKS:
-        return "No libraries registered."
+    library = library.strip().lower()
+       
+    if library not in LIBRARY_BOOKS:
+        libs = ", ".join(known_libraries())
+        return f"[registry] Unknown library '{library}'. Available: {libs}"
 
-    lines = []
-    for library, books in LIBRARY_BOOKS.items():
-        done  = [b for b in books if _book_on_disk(library, b)]
-        total = len(books)
-        lines.append(f"\n{library}: {len(done)}/{total} books downloaded")
-        lines.append("-" * 40)
-        for book in books:
-            status = "Yes " if _book_on_disk(library, book) else "No"
-            lines.append(f"  {status} {book}")
+    books = LIBRARY_BOOKS[library]
+    done = len(downloaded_books(library))
+
+    lines = [
+        f"{library}: {done}/{len(books)} downloaded",
+        "-" * 40
+    ]
+
+    for book in books:
+        status = "YES" if is_downloaded(library, book) else "NO"
+        lines.append(f"  {status}  {book}")
 
     return "\n".join(lines)

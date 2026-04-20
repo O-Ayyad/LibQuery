@@ -261,12 +261,15 @@ class Hindu(Library):
 
             if book_name == "bhagavadgita":
                 yield from self._parse_gita(data, book_name)
-            elif book_name.startswith("rigveda-"):
-                yield from self._parse_rigveda(data, book_name)
+                
+            #elif book_name.startswith("rigveda-"):
+            #    yield from self._parse_rigveda(data, book_name)
+
             elif book_name.startswith("ramayana-"):
                 yield from self._parse_ramayana(data, book_name)
-            else:
-                yield from self._parse_upanishad(data, book_name)
+
+            #else:
+            #    yield from self._parse_upanishad(data, book_name)
 
 
     def _parse_gita(self, data: dict, book_name: str) -> Iterator[Row]:
@@ -401,7 +404,7 @@ def _write_parquet(rows: list[Row], library: str, book: str, send:Callable[[str]
         compression="snappy",
         existing_data_behavior="overwrite_or_ignore",
     )
-    send(f" Success! {library}/{book}  {len(rows)} rows  ->  {out_dir}")
+    send(f" Success! {library}/{book}  {len(rows)} rows")
     return out_dir
 
 
@@ -448,7 +451,6 @@ def ingest(target: str = "all", send:Callable[[str],None]=print) -> list[str]:
 
         if book_filter and not out_dirs:
             send(f"Book '{book_filter}' not found in {lib.name}. Check spelling.")
-
     return out_dirs
 
 if __name__ == "__main__":

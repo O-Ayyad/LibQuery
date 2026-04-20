@@ -15,9 +15,10 @@ import json
 import os
 import sys
 import time
+import asyncio
 
 from ingestion.ingest import ingest
-from networking.registry import is_downloaded, missing_books, is_known, LIBRARY_BOOKS
+from networking.registry import is_downloaded, missing_books, is_known, LIBRARY_BOOKS,ls
 
 import requests
 
@@ -150,7 +151,7 @@ def _save(library: str, filename: str, data: dict) -> str: #Save the data to the
     print(f"  Saved to {out_path}")
     return out_path
 
-def _cleanup_raw(library: str) -> None: #Clean up the raw data directory
+def cleanup_raw(library: str) -> None: #Clean up the raw data directory
     raw_dir = os.path.join(RAW_DATA_DIR, library)
     if os.path.isdir(raw_dir):
         shutil.rmtree(raw_dir)
@@ -189,6 +190,8 @@ def fetch_hindu(book: str | None = None, send: Callable[[str], None] = print) ->
         except Exception as e:
             send(f"  Error fetching {b}: {e}")
 
+    ingest("hindu", send)
+    cleanup_raw("hindu")
     return saved
 
 def _fetch_ramayana(kandas_needed: list[str], send: Callable[[str], None]) -> list[str]:
@@ -265,6 +268,8 @@ def fetch_talmud(book: str | None = None, send: Callable[[str], None] = print) -
         except requests.RequestException as e:
             raise ValueError(f"  Error fetching {tractate}: {e}")
 
+    ingest("talmud", send)
+    cleanup_raw("talmud")
     return saved
 
 
@@ -344,6 +349,8 @@ def fetch_mormon(book: str | None = None, send: Callable[[str], None] = print) -
 
         path = _save("mormon", registry_name, book_data)
         saved.append(path)
+    ingest("mormon", send)  
+    cleanup_raw("mormon")
     return saved
 
 #  _____________________________________________________________________________________________________ BIBLE
@@ -370,7 +377,7 @@ def fetch_bible(book: str | None = None, send: Callable[[str], None] = print) ->
 
         saved_path = _save("bible", "bible", r.json())
         saved.append(saved_path)
-        send(f"Bible download complete -> {saved_path}")
+        send(f"Bible download complete")
 
     else:
         # Single book
@@ -398,13 +405,15 @@ def fetch_bible(book: str | None = None, send: Callable[[str], None] = print) ->
 
         saved_path = _save("bible", book_key, r.json())
         saved.append(saved_path)
-        send(f"Book '{book_key}' download complete -> {saved_path}")
+        send(f"Book '{book_key}' download complete")
+    ingest("bible", send)
+    cleanup_raw("bible")
     return saved
 #  _____________________________________________________________________________________________________ QURAN
 #  _____________________________________________________________________________________________________ QURAN
 # ______________________________________________________________________________________________________ QURAN
 # Fetch Arabic and English Quran and save both
-def fetch_quran(send: Callable[[str], None] = print) -> list[str]:
+def fetch_quran(book: str |None = None, send: Callable[[str], None] = print) -> list[str]: #book for dispatch
     if is_downloaded("quran"):
         send("Quran fully downloaded.")
         return []
@@ -428,31 +437,84 @@ def fetch_quran(send: Callable[[str], None] = print) -> list[str]:
     path_en = _save("quran", "english_asad", r.json())
     send("Done fetching Quran in English") 
 
+    ingest("quran", send)
+    cleanup_raw("quran")
     return [path_ar, path_en]
+
+def download_full_library(lib: str, send: Callable[[str], None]) -> list[str]:
+    send(f"[{lib}] starting full download")
+
+    try:
+        saved = libquery_dispatch(lib, None, send)
+
+        if not saved:
+            send(f"[fetch {lib}] WARNING: nothing was downloaded")
+            return []
+
+        send(f"[fetch {lib}] finished ({len(saved)} files)")
+        return saved
+
+    except Exception as e:
+        send(f"[fetch {lib}] ERROR: {e}")
+        return []
+
+
+async def download_all(send: Callable[[str], None] = print):
+    from concurrent.futures import ThreadPoolExecutor
+
+    loop = asyncio.get_running_loop()
+    libs = list(LIBRARY_DISPATCH.keys())
+
+    with ThreadPoolExecutor(max_workers=len(libs)) as executor:
+        tasks = [
+            loop.run_in_executor(
+                executor,
+                download_full_library,
+                lib,
+                send
+            )
+            for lib in libs
+        ]
+
+        return await asyncio.gather(*tasks)
+
+LIBRARY_DISPATCH: dict[str, Callable[..., list[str]]] = {}
+
+LIBRARY_DISPATCH = {
+    "bible": fetch_bible,
+    "quran": fetch_quran,
+    "talmud": fetch_talmud,
+    "hindu": fetch_hindu,
+    "mormon": fetch_mormon,
+}
+
+def libquery_dispatch(
+    library: str,
+    book: str | None = None,
+    send: Callable[[str], None] = print
+) -> list[str]:
+
+    library = library.lower()
+
+    if library == "all":
+        return download_full_library(send)
+
+    handler = LIBRARY_DISPATCH.get(library)
+
+    if not handler:
+        raise ValueError(
+            f"Unsupported library '{library}'. Available: {list(LIBRARY_DISPATCH.keys())}"
+        )
+
+    return handler(book, send)
+
+async def fetch(library: str, book: str | None = None, send=print) -> list[str]:
     
-def fetch(library: str, book: str | None = None, send: Callable[[str], None] = print) -> list[str]:
-    # Entry point used by c download cmd and by ingest
     library = library.lower()
     if library == "all":
-        saved = []
-        for lib in ["bible", "quran", "talmud", "hindu", "mormon"]:
-            try:
-                saved += fetch(lib, None, send)
-            except Exception as e:
-                send(f"[fetch] ERROR: failed to fetch {lib}: {e}")
-        return saved
-    
-    if library == "bible":
-        return fetch_bible(book, send)
-    if library == "quran":
-        return fetch_quran(send)
-    if library == "talmud":
-        return fetch_talmud(book, send)     
-    if library == "hindu":
-        return fetch_hindu(book, send)
-    if library == "mormon":
-        return fetch_mormon(book, send)
-    raise ValueError(f"Unsupported library: '{library}'. Available: bible, quran, talmud, hindu, mormon")
+        return await download_all(send)
+
+    return libquery_dispatch(library, book, send)
 
 
 if __name__ == "__main__":

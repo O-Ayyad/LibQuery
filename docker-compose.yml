@@ -9,14 +9,14 @@ services:
       - CLUSTER_NAME=libquery
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
       - HDFS_CONF_dfs_webhdfs_enabled=true
-      - HDFS_CONF_dfs_replication=1
+      - HDFS_CONF_dfs_replication=3
       - HDFS_CONF_dfs_permissions_enabled=false
     volumes:
       - namenode-data:/hadoop/dfs/name
 
-  datanode:
+  datanode1:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
-    hostname: datanode
+    hostname: datanode1
     ports:
       - "9864:9864"
       - "9866:9866"
@@ -24,10 +24,46 @@ services:
       - namenode
     environment:
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
-      - HDFS_CONF_dfs_replication=1
-      - HDFS_CONF_dfs_datanode_hostname=datanode
+      - HDFS_CONF_dfs_replication=3
+      - HDFS_CONF_dfs_datanode_hostname=datanode1
       - HDFS_CONF_dfs_client_use_datanode_hostname=true
+    volumes:
+      - datanode1-data:/hadoop/dfs/data
+
+  datanode2:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    hostname: datanode2
+    ports:
+      - "9865:9864"
+      - "9867:9866"
+    depends_on:
+      - namenode
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_replication=3
+      - HDFS_CONF_dfs_datanode_hostname=datanode2
+      - HDFS_CONF_dfs_client_use_datanode_hostname=true
+    volumes:
+      - datanode2-data:/hadoop/dfs/data
+
+  datanode3:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    hostname: datanode3
+    ports:
+      - "9868:9864"
+      - "9869:9866"
+    depends_on:
+      - namenode
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_replication=3
+      - HDFS_CONF_dfs_datanode_hostname=datanode3
+      - HDFS_CONF_dfs_client_use_datanode_hostname=true
+    volumes:
+      - datanode3-data:/hadoop/dfs/data
 
 volumes:
   namenode-data:
-  datanode-data:
+  datanode1-data:
+  datanode2-data:
+  datanode3-data:

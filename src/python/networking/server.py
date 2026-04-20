@@ -154,7 +154,16 @@ async def _handle_connection(
     
         try:
             # Read until the client closes the write
-            raw = await reader.read(65536)
+            try:
+                timeout = None if client_ip == "127.0.0.1" else 10.0
+                raw = await asyncio.wait_for(reader.read(65536), timeout=timeout)
+            except asyncio.TimeoutError:
+                writer.write(b"ERROR: connection timed out\n")
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+                return
+            
             if not raw:
                 return
 
@@ -167,15 +176,16 @@ async def _handle_connection(
                 loop = asyncio.get_running_loop()
 
                 def send(msg) -> None: # Sends a message while C send_and_print functions is in while loop
+                    print(msg)
                     future = asyncio.run_coroutine_threadsafe(
-                        _async_write(writer, msg + "\n"), loop
+                        _async_write(writer, "\n"+msg + "\n"), loop
                     )
                     try:
                         future.result(timeout=10)
                     except Exception:
                         pass
 
-                result = await loop.run_in_executor(None, lambda: handle(payload, send, client_ip))
+                result = await loop.run_in_executor(None, lambda: handle(payload, send, client_ip, loop))
 
                 if result:
                     writer.write(result.encode("utf-8"))

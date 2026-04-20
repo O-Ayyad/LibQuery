@@ -525,7 +525,9 @@ LibQuery will use HDFS is LIBQUERY_USE_HDFS in .env is set to true.
 **1. Add to your hosts file** (`C:\Windows\System32\drivers\etc\hosts`, open as Administrator):
 ```
 127.0.0.1 namenode
-127.0.0.1 datanode
+127.0.0.1 datanode1
+127.0.0.1 datanode2
+127.0.0.1 datanode3
 ```
 *2. Start the cluster:**
 ```bash

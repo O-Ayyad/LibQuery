@@ -81,16 +81,22 @@ char *load_admin_token(void)
 
     return token;
 }
-
 int is_valid_name(const char *s)
 {
-    if (s == NULL)
-        return 1;
-    if (*s == '\0')
-        return 0;
-
+    if (s == NULL) return 1;
+    if (*s == '\0') return 0;
     for (const char *p = s; *p; p++) {
         if (!isalnum((unsigned char)*p) && *p != '_' && *p != '-')
+            return 0;
+    }
+    return 1;
+}
+
+int is_valid_keyword(const char *s)
+{
+    if (s == NULL || *s == '\0') return 0;
+    for (const char *p = s; *p; p++) {
+        if (*p == '"' || *p == '\\' || *p == '\n' || *p == '\r')
             return 0;
     }
     return 1;

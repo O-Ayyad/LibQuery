@@ -38,6 +38,7 @@ HARDCODED_ALIASES: dict[str, str] = {
 
     "bhagavad-gita":"bhagavadgita",
     "bhagavad_gita":"bhagavadgita",
+    "gita":"bhagavadgita",
 
     "ramayana":"ramayana-1",  #default to bala kanda 1
     "balakanda":"ramayana-1",

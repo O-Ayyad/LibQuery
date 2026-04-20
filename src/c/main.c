@@ -30,9 +30,22 @@
 
 static void print_welcome(void)
 {
-    printf(
-        "Welcome to LibQuery, a distributed literary query system.\n"
-        "Type 'libquery help' for usage.\n"
+    printf("\n\n\n"
+        "         <||<------------------------------------------------------------------------------------------------------------------>||>\n"
+        "         <||<                  ,,       ,,                                                                                     >||>\n"
+        "         <||<  `7MMF'            db      *MM              .g8\"\"8q.                                                             >||>\n"
+        "         <||<    MM                       MM            .dP'    `YM.                                                           >||>\n"
+        "         <||<    MM            `7MM       MM,dMMb.      dM'      `MM     `7MM  `7MM       .gP\"Ya      `7Mb,od8     `7M'   `MF' >||>\n"
+        "         <||<    MM              MM       MM    `Mb     MM        MM       MM    MM      ,M'   Yb       MM' \"'       VA   ,V   >||>\n"
+        "         <||<    MM      ,       MM       MM     M8     MM.      ,MP       MM    MM      8M\"\"\"\"\"\"       MM            VA ,V    >||>\n"
+        "         <||<    MM     ,M       MM       MM.   ,M9     `Mb.    ,dP'       MM    MM      YM.    ,       MM             VVV     >||>\n"
+        "         <||<   .MMmmmmMMM     .JMML.     P^YbmdP'        `\"bmmd\"'         `Mbod\"YML.     `Mbmmd'     .JMML.           ,V      >||>\n"  
+        "         <||<                                                MMb                                                     ,V/       >||>\n"
+        "         <||<                                                 `qoog'                                                 OOb\"      >||>\n"
+        "         <||<------------------------------------------------------------------------------------------------------------------>||>\n"
+        "          ASCII art credit: https://patorjk.com/ \n\n"
+        "                             |$$|   Welcome to LibQuery, a distributed literary query system.   |$$|\n"
+        "                             |$$|            Type 'libquery help' for usage.                    |$$|\n"
     );
 }
 int main(int argc, char *argv[]){
@@ -101,6 +114,13 @@ int main(int argc, char *argv[]){
                     "{\"cmd\":\"ls\",\"library\":\"%s\"}", argv[2]);
             else
                 snprintf(payload, sizeof(payload), "{\"cmd\":\"ls\"}");
+            rc = send_and_print(payload);
+            break;
+        }
+        if (argc >= 3 && strcasecmp(argv[2], "ls" ) == 0 && strcasecmp(argv[1], "alias" ) == 1) { //Allow libquery <library> ls but ignore alias ls
+            char payload[256];
+            snprintf(payload, sizeof(payload),
+                "{\"cmd\":\"ls\",\"library\":\"%s\"}", argv[1]);
             rc = send_and_print(payload);
             break;
         }
@@ -174,7 +194,8 @@ int main(int argc, char *argv[]){
             const char *library = (argc >= 3) ? argv[2] : NULL;
             const char *book = (argc >= 4) ? argv[3] : NULL;
             if (!library) {
-                fprintf(stderr, "[Client] Error: specify a library, e.g. 'libquery download bible'\n");
+                fprintf(stderr, "[Client] Error: specify a library, e.g. 'libquery download bible'\n"
+                "Try 'libquery help' for all commands");
                 rc = 1; 
                 break;
             }
@@ -194,7 +215,8 @@ int main(int argc, char *argv[]){
 
         /* Normal query */
         if (argc < 3) {
-            fprintf(stderr, "[Client] Error: specify library and book.  Try 'libquery help'.\n");
+            fprintf(stderr, "[Client] Error: specify library and book.  Use 'libquery ls' for a list of all libraries\n"
+                "Try 'libquery help' for all commands.\n");
             rc = 1;
             break;
         }
@@ -231,8 +253,6 @@ int main(int argc, char *argv[]){
             }
             use_range = true;
         }
-        //printf("DEBUG: final call -> library='%s', book='%s', use_range=%d\n",
-        //library, book, use_range);
         rc = query(library, book, use_range, range);
     }while(0);
     

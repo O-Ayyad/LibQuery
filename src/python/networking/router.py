@@ -25,6 +25,7 @@ import threading
 from typing import Callable
 from itertools import groupby
 import networking.registry as registry
+import asyncio
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -54,7 +55,7 @@ def _format_results(rows: list[dict]) -> str:
 
     return "\n\n".join(lines) if not is_quran else "\n".join(lines)
 
-def handle(payload: dict,  send: Callable[[str], None], ip : str) -> str: #Route the payload to the appropriate function
+def handle(payload: dict, send: Callable[[str], None], ip: str, loop: asyncio.AbstractEventLoop) -> str: #Route the payload to the appropriate function
     cmd = payload.get("cmd","query")
     flags = payload.get("flags",[])
     match cmd:
@@ -86,28 +87,7 @@ def handle(payload: dict,  send: Callable[[str], None], ip : str) -> str: #Route
         
         case "ls":
             library = payload.get("library", "").lower().strip()
-            registry.scan_downloaded_books()
-            
-            if not library:
-                # No library specified
-                lines = []
-                for lib, books in registry.LIBRARY_BOOKS.items():
-                    done = len(registry.downloaded_books(lib))
-                    total = len(books)
-                    lines.append(f"{lib}: {done}/{total} downloaded")
-                return "\n".join(lines)
-            
-            elif library not in registry.LIBRARY_BOOKS:
-                libs = ", ".join(registry.known_libraries())
-                return f"Unknown library '{library}'. Available: {libs}"
-            
-            else:
-                # Known library list all books
-                lines = [f"{library}: {len(registry.downloaded_books(library))}/{len(registry.LIBRARY_BOOKS[library])} downloaded", "-" * 40]
-                for book in registry.LIBRARY_BOOKS[library]:
-                    status = "YES" if registry.is_downloaded(library, book) else "NO "
-                    lines.append(f"  {status}  {book}")
-                return "\n".join(lines)
+            return registry.ls(library)
 
         case "ping":
             if("quiet" in flags):
@@ -126,38 +106,30 @@ def handle(payload: dict,  send: Callable[[str], None], ip : str) -> str: #Route
             except FileNotFoundError as e:
                 library = payload.get("library", "").lower().strip()
                 if library not in registry.LIBRARY_BOOKS:
-                    libs = ", ".join(registry.known_libraries())
-                    return f"[router] ERROR: {e}\n\nAvailable libraries: {libs}"
+                    return f"[router] ERROR: {e}\n\nAvailable libraries: {registry.ls()}"
                 else:
-                    lines = [f"[router] ERROR: {e}", "", 
-                             f"{library}: {len(registry.downloaded_books(library))}/{len(registry.LIBRARY_BOOKS[library])} books downloaded", 
-                             "-" * 40]
-                    for book in registry.LIBRARY_BOOKS[library]:
-                        status = "YES" if registry.is_downloaded(library, book) else "NO "
-                        lines.append(f"  {status}  {book}")
-                    return "\n".join(lines)
+                    errmsg = f"[router] ERROR: {e}"
+                    ls = registry.ls(library)
+                    return errmsg + "\n" + ls
             except Exception as e:
                 return f"[router] ERROR: query failed : {e}"
 
         case "download":
             from ingestion.fetch import fetch
-            from ingestion.ingest import ingest
-            from ingestion.fetch import _cleanup_raw
-
             library = payload.get("library")
             book = payload.get("book")
+
             try:
-                saved = fetch(library, book, send)
+                future = asyncio.run_coroutine_threadsafe(fetch(library, book, send), loop)
+                saved = future.result()
+
                 if not saved:
                     return f"[router] ERROR: nothing downloaded for {library}/{book or 'all'}\n Library or book may not exist"
-                
-                ingested = ingest(f"{library}:{book}" if book else library, send)
-                if not ingested:
-                    return f"[router] ERROR: fetch succeeded but ingest produced nothing"
-                return f"OK: downloaded and ingested {library}/{book or 'all'}"        
+
+                return f"OK: downloaded and ingested {library}/{book or 'all'}"
             except Exception as e:
                 return f"[router] ERROR: {e}"
             finally:
-                _cleanup_raw(library)
+                registry.scan_downloaded_books()
     return f"""ERROR: unknown command '{cmd}' 
             Use Libquery help for commands"""
