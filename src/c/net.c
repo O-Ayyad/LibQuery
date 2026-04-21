@@ -84,9 +84,9 @@ char *get_ip(void)
 }
  
 //The definition lives in payload.c.
-void print_verse(int chapter, int verse, const char *text);
+void print_verse(int chapter, int verse, const char *text,const char* library);
  
-static int send_and_print_impl(const char *payload, int flags)
+static int send_and_print_impl(const char *payload, const char *library, int flags)
 {
     const int use_local = flags & SEND_FLAG_LOCAL;
     const int quiet     = flags & SEND_FLAG_QUIET;
@@ -144,7 +144,7 @@ static int send_and_print_impl(const char *payload, int flags)
             int chapter, verse;
             char text[4096];
             if (sscanf(line_start, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
-                print_verse(chapter, verse, text);
+                print_verse(chapter, verse, text, library);
             else if (!quiet && *line_start != '\0')
                 printf("%s\n", line_start);
  
@@ -160,7 +160,8 @@ static int send_and_print_impl(const char *payload, int flags)
         int chapter, verse;
         char text[4096];
         if (sscanf(buf, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
-            print_verse(chapter, verse, text);
+            print_verse(chapter, verse, text, library);
+        
         else
             printf("%s\n", buf);
     }
@@ -169,26 +170,30 @@ static int send_and_print_impl(const char *payload, int flags)
     return 0;
 }
  
-int send_and_print(const char *payload)
-{
-    return send_and_print_impl(payload, 0);
+int send_and_print(const char *payload) {
+    return send_and_print_impl(payload, NULL, 0);
 }
  
 int send_and_print_local(const char *payload)
 {
-    return send_and_print_impl(payload, SEND_FLAG_LOCAL);
+    return send_and_print_impl(payload, NULL, SEND_FLAG_LOCAL);
 }
  
 int send_and_print_quiet(const char *payload)
 {
-    return send_and_print_impl(payload, SEND_FLAG_QUIET);
+    return send_and_print_impl(payload, NULL, SEND_FLAG_QUIET);
 }
  
 int send_and_print_quiet_local(const char *payload)
 {
-    return send_and_print_impl(payload, SEND_FLAG_BOTH);
+    return send_and_print_impl(payload, NULL, SEND_FLAG_BOTH);
 }
- 
+
+
+int send_and_print_with_library(const char *payload, const char *library) {
+    return send_and_print_impl(payload, library, 0);
+}
+
 int ping(bool quiet)
 {
     if (quiet)

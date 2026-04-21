@@ -239,7 +239,6 @@ int main(int argc, char *argv[]){
             book = "quran";
             ref  = (argc >= 3) ? argv[2] : NULL;
         }
-
         bool  use_range = false;
         Range range;
         memset(&range, 0, sizeof(range));
@@ -252,6 +251,11 @@ int main(int argc, char *argv[]){
                 break;
             }
             use_range = true;
+        }
+        if (strcasecmp(library, "talmud") == 0 && use_range && range.start.chapter < 2) {
+            fprintf(stderr, "[Client] Error: Talmud chapters start at 2 (e.g. 'libquery talmud niddah 2')\n");
+            rc = 1;
+            break;
         }
         rc = query(library, book, use_range, range);
     }while(0);

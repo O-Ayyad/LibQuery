@@ -80,4 +80,8 @@ LIBRARY_CONFIG = {
     "mormon": {
         "base_url": "https://raw.githubusercontent.com/BraydenTW/book-of-mormon-api/refs/heads/main/book-of-mormon.json",
     },
+    "shakespeare":{ 
+        "base_url_part1" : "https://shakespeare.mit.edu/",
+        "base_url_part2" : "/full.html"
+    }
 }

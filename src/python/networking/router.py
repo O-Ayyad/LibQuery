@@ -101,7 +101,7 @@ def handle(payload: dict, send: Callable[[str], None], ip: str, loop: asyncio.Ab
             from query.engine import execute
             try:
                 registry.scan_downloaded_books()
-                rows = execute(payload)
+                rows = execute(payload,ip)
                 return _format_results(rows)
             except FileNotFoundError as e:
                 library = payload.get("library", "").lower().strip()
@@ -118,14 +118,11 @@ def handle(payload: dict, send: Callable[[str], None], ip: str, loop: asyncio.Ab
             from ingestion.fetch import fetch
             library = payload.get("library")
             book = payload.get("book")
-
             try:
-                future = asyncio.run_coroutine_threadsafe(fetch(library, book, send), loop)
-                saved = future.result()
-
+                saved = fetch(library, book, send)
                 if not saved:
                     return f"[router] ERROR: nothing downloaded for {library}/{book or 'all'}\n Library or book may not exist"
-
+                registry.scan_downloaded_books()
                 return f"OK: downloaded and ingested {library}/{book or 'all'}"
             except Exception as e:
                 return f"[router] ERROR: {e}"

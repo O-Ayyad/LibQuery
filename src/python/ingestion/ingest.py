@@ -11,11 +11,12 @@ from networking.registry import LIBRARY_BOOKS
 import pyarrow as pa
 import pyarrow.parquet as pq
 from typing import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from config.settings import RAW_DATA_DIR
-from config.storage import get_fs, book_path, rmdir, mkdirs
+from config.settings import RAW_DATA_DIR, USE_HDFS
+from config.storage import get_fs, book_path
 
 # ---------------------------------------------------------------------------
 # Schema / Row
@@ -51,10 +52,6 @@ class Library(ABC):
     @abstractmethod
     def parse(self, book_filter: str | None = None) -> Iterator[Row]: ...
 
-    def validate_files(self) -> None:
-        for path in self.raw_files:
-            if not os.path.exists(path):
-                raise FileNotFoundError(f"Missing: {path} - run fetch first.")
     @classmethod
     def for_book(cls, book: str) -> "Library":
         return cls(book=book)
@@ -205,7 +202,7 @@ class Talmud(Library):
                                         ("he", data.get("he", []))):
                     if not text_data:
                         continue
-                    daf_idx = 0
+                    daf_idx = 1
                     for daf in text_data:
                         if daf is None:
                             continue
@@ -363,7 +360,102 @@ class Mormon(Library):
                         "lang":    "en",
                     }
 
+def _roman_to_int(roman_str) -> int:
+    roman_values = {
+        'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000,
+        'IV': 4, 'IX': 9, 'XL': 40, 'XC': 90, 'CD': 400, 'CM': 900
+    } 
+    i = 0
+    total = 0
+    
+    while i < len(roman_str):
+        if i + 1 < len(roman_str) and roman_str[i:i+2] in roman_values:
+            total += roman_values[roman_str[i:i+2]]
+            i += 2
+        else:
+            total += roman_values[roman_str[i]]
+            i += 1
+    
+    return total
 
+
+class Shakespeare(Library):
+
+    def __init__(self, book: str | None = None):
+        self._book = book
+
+    @property
+    def name(self) -> str:
+        return "shakespeare"
+
+    @classmethod
+    def for_book(cls, book: str) -> "Shakespeare":
+        return cls(book=book)
+
+    @property
+    def raw_files(self) -> list[str]:
+        if self._book:
+            return [os.path.join(RAW_DATA_DIR, "shakespeare", f"{self._book}.json")]
+        return [
+            os.path.join(RAW_DATA_DIR, "shakespeare", f"{b}.json")
+            for b in LIBRARY_BOOKS["shakespeare"]
+        ]
+
+    def parse(self, book_filter: str | None = None) -> Iterator[Row]:
+        filter_slug = (book_filter or self._book or "").lower()
+
+        files = (
+            [os.path.join(RAW_DATA_DIR, "shakespeare", f"{filter_slug}.json")]
+            if filter_slug else self.raw_files
+        )
+
+        for path in files:
+            if not os.path.exists(path):
+                continue
+            slug = os.path.splitext(os.path.basename(path))[0]
+            with open(path, encoding="utf-8") as f:
+                play_data = json.load(f)
+
+            act = 0
+            scene = 0
+            current_speaker = ""
+            scene_lines: list[str] = []
+
+            def flush_scene():
+                if act > 0 and scene > 0 and scene_lines:
+                    yield {
+                        "library": self.name,
+                        "book":    slug,
+                        "chapter": act,
+                        "verse":   scene,
+                        "text":    "\n".join(scene_lines),
+                        "lang":    "en",
+                    }
+
+            for entry in play_data.get("lines", []):
+                tag = entry.get("tag")
+                text = entry.get("text", "").strip()
+
+                if tag == "h3":
+                    upper = text.upper()
+                    if upper.startswith("ACT"):
+                        yield from flush_scene()
+                        scene_lines = []
+                        act = _roman_to_int(upper.split()[-1])
+                        scene = 0
+                        current_speaker = ""
+                    elif upper.startswith("SCENE"):
+                        yield from flush_scene()
+                        scene_lines = []
+                        scene = _roman_to_int(upper.split()[1].rstrip("."))
+                        current_speaker = ""
+                elif tag == "b" and act > 0 and scene > 0:
+                    current_speaker = text
+                elif tag == "line" and act > 0 and scene > 0:
+                    if text:
+                        scene_lines.append(f"{current_speaker}: {text}" if current_speaker else text)
+
+            yield from flush_scene()
 # Registry 
 # Create library class and register here
 
@@ -373,10 +465,12 @@ LIBRARIES: dict[str, type[Library]] = {
     "talmud": Talmud,
     "hindu":  Hindu,
     "mormon": Mormon,
+    "shakespeare" : Shakespeare,
 }
 
 # Writer
-
+import tempfile
+import pyarrow.fs as pa_fs
 def _write_parquet(rows: list[Row], library: str, book: str, send:Callable[[str], None]=print) -> str:
     if not rows:
         raise ValueError(f"No rows to write for {library}/{book}")
@@ -394,17 +488,33 @@ def _write_parquet(rows: list[Row], library: str, book: str, send:Callable[[str]
     )
 
     out_dir = book_path(library, book)
-    rmdir(out_dir)
-    mkdirs(out_dir)
 
-    pq.write_to_dataset(
-        table,
-        root_path=out_dir,
-        filesystem=get_fs(),
-        compression="snappy",
-        existing_data_behavior="overwrite_or_ignore",
-    )
-    send(f" Success! {library}/{book}  {len(rows)} rows")
+    if not USE_HDFS:
+        pq.write_to_dataset(
+            table,
+            root_path=out_dir,
+            filesystem=get_fs(),
+            compression="snappy",
+            existing_data_behavior="overwrite_or_ignore",
+        )
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            pq.write_to_dataset(
+                table,
+                root_path=tmp,
+                filesystem=pa_fs.LocalFileSystem(),
+                compression="snappy",
+                existing_data_behavior="overwrite_or_ignore",
+            )
+            fs = get_fs()
+            for fname in os.listdir(tmp):
+                local_path = os.path.join(tmp, fname)
+                hdfs_path  = f"{out_dir}/{fname}"
+                with open(local_path, "rb") as f_in:
+                    with fs.open_output_stream(hdfs_path) as f_out:
+                        f_out.write(f_in.read())
+
+    send(f"  >> Success! {library}/{book}  {len(rows)} rows")
     return out_dir
 
 
@@ -431,26 +541,28 @@ def ingest(target: str = "all", send:Callable[[str],None]=print) -> list[str]:
     out_dirs: list[str] = []
 
     for lib in targets:
-        lib.validate_files()
-        current_book: str | None = None
-        book_rows: list[Row] = []
+        book_batches: dict[str, list[Row]] = {}
 
         try:
             for row in lib.parse(book_filter):
-                if row["book"] != current_book:
-                    if book_rows:
-                        out_dirs.append(_write_parquet(book_rows, lib.name, current_book, send))
-                    current_book = row["book"]
-                    book_rows = []
-                book_rows.append(row)
+                book_batches.setdefault(row["book"], []).append(row)
         except Exception as e:
-            send(f"[ingest] ERROR: parse failed for {lib.name}/{current_book or '?'}: {e}")
+            send(f"[ingest] ERROR: parse failed for {lib.name}: {e}")
 
-        if book_rows:
-            out_dirs.append(_write_parquet(book_rows, lib.name, current_book, send))
+        if not book_batches:
+            if book_filter:
+                send(f"Book '{book_filter}' not found in {lib.name}. Check spelling.")
+            continue
 
-        if book_filter and not out_dirs:
-            send(f"Book '{book_filter}' not found in {lib.name}. Check spelling.")
+        def write_one(item: tuple[str, list[Row]]) -> str:
+            book, rows = item
+            return _write_parquet(rows, lib.name, book, send)
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(write_one, book_batches.items()))
+
+        out_dirs.extend(results)
+
     return out_dirs
 
 if __name__ == "__main__":
@@ -462,4 +574,5 @@ if __name__ == "__main__":
         help=f"all | {'| '.join(LIBRARIES)} | <library>:<book>  (default: all)"
     )
     args = ap.parse_args()
+    print("callad")
     ingest(args.target)

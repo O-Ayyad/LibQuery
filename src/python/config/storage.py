@@ -64,15 +64,3 @@ def has_parquet(path: str) -> bool:
     except Exception:
         return False
  
- 
-def rmdir(path: str) -> None:
-    try:
-        fs = get_fs()
-        if fs.get_file_info(path).type != pa_fs.FileType.NotFound:
-            fs.delete_dir(path)
-    except Exception:
-        pass
- 
- 
-def mkdirs(path: str) -> None:
-    get_fs().create_dir(path, recursive=True)

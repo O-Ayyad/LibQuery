@@ -70,6 +70,15 @@ LIBRARY_BOOKS: dict[str, list[str]] = {
         "wordsofmormon", "mosiah", "alma", "helaman",
         "3nephi", "4nephi", "mormon", "ether", "moroni",
     ],
+    "shakespeare": [
+        "allswell", "asyoulikeit","comedy_errors", "cymbeline", "lll","measure",         
+        "merchant", "merry_wives", "midsummer", "much_ado","pericles",        
+        "taming_shrew","tempest", "troilus_cressida",
+        "twelfth_night","two_gentlemen","winters_tale","cleopatra", 
+        "coriolanus", "hamlet","julius_caesar", "lear", "macbeth",        
+        "othello", "romeo_juliet","timon","titus", "1henryiv", "2henryiv",  
+        "henryv", "1henryvi","2henryvi","3henryvi", "henryviii", "john","richardii", "richardiii",     
+    ]
 }
     
 _downloaded_cache: dict[str, set[str]] = {}

@@ -12,16 +12,37 @@
 
 #define LINE_WIDTH 200
 
-void print_verse(int chapter, int verse, const char *text)
+void print_verse(int chapter, int verse, const char *text,const char* library)
 {
     char ref[16];
-    snprintf(ref, sizeof(ref), "%d:%-4d ", chapter, verse);
+
+    if (library && strcasecmp(library, "talmud") == 0) {
+        char amud = (verse == 1) ? 'a' : 'b';
+        snprintf(ref, sizeof(ref), "%d%c     ", chapter, amud);
+    } else {
+        snprintf(ref, sizeof(ref), "%d:%-4d ", chapter, verse);
+    }
+    
     int ref_len = (int)strlen(ref);
     int text_width = LINE_WIDTH - ref_len;
 
+    // replace \x1F with \n + padding in a local copy
+    char buf[65536];
+    int out = 0;
+    for (int i = 0; text[i] && out < (int)sizeof(buf) - ref_len - 2; i++) {
+        if (text[i] == '\x1F') {
+            buf[out++] = '\n';
+            for (int p = 0; p < ref_len; p++)
+                buf[out++] = ' ';
+        } else {
+            buf[out++] = text[i];
+        }
+    }
+    buf[out] = '\0';
+
     printf("%s", ref);
 
-    int len = (int)strlen(text);
+    int len = (int)strlen(buf);
     int pos = 0;
     int first = 1;
 
@@ -31,22 +52,28 @@ void print_verse(int chapter, int verse, const char *text)
 
         int remaining = len - pos;
         if (remaining <= text_width) {
-            printf("%s\n", text + pos);
+            printf("%s\n", buf + pos);
             break;
         }
 
         int cut = text_width;
-        while (cut > 0 && text[pos + cut] != ' ')
+        while (cut > 0 && buf[pos + cut] != ' ' && buf[pos + cut] != '\n')
             cut--;
         if (cut == 0) cut = text_width;
 
-        printf("%.*s\n", cut, text + pos);
-        pos  += cut + 1;
+        if (buf[pos + cut] == '\n') {
+            printf("%.*s\n", cut, buf + pos);
+            pos += cut + 1;
+            first = 0;
+            continue;
+        }
+
+        printf("%.*s\n", cut, buf + pos);
+        pos += cut + 1;
         first = 0;
     }
     printf("\n");
 }
-
 void print_help(void)
 {
     printf(
@@ -109,7 +136,7 @@ int query(const char *library, const char *book, bool use_range, Range range)
             range.end.verse);
     }
 
-    return send_and_print(payload);
+    return send_and_print_with_library(payload, library);
 }
 
 int download(const char *library, const char *book)

@@ -18,6 +18,7 @@ int send_and_print_local(const char *payload);
 int send_and_print_quiet(const char *payload);
 
 int send_and_print_quiet_local(const char *payload);
+int send_and_print_with_library(const char *payload, const char *library);
 
 // Returns 0 if the server respondes
 int ping(bool quiet);

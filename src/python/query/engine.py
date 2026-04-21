@@ -61,8 +61,8 @@ def _load_books(spark: SparkSession, library: str, book: str, start_chapter: int
         )
     return spark.read.parquet(book_dir)
 
-def execute(payload: dict[str, Any]) -> list[dict]: # Payload builds SQL query then returns rows to CLI
-    print("Executing payload:", json.dumps(payload, indent=2))
+def execute(payload: dict[str, Any],ip :str) -> list[dict]: # Payload builds SQL query then returns rows to CLI
+    print(f"\nFrom {ip}: Executing payload", json.dumps(payload, indent=2))
     library       = payload["library"].lower()
     book          = payload["book"].lower()
     start_chapter = int(payload.get("start_chapter", 1))
@@ -108,6 +108,6 @@ def execute(payload: dict[str, Any]) -> list[dict]: # Payload builds SQL query t
         spark.catalog.dropTempView(view_name)
 
     return [
-        {"chapter": r["chapter"], "verse": r["verse"], "text": r["text"], "lang": r["lang"]}
+        {"chapter": r["chapter"], "verse": r["verse"], "text": r["text"].replace("\n", "\x1F"), "lang": r["lang"]}
         for r in rows if r["text"].strip()
     ]

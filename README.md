@@ -6,8 +6,9 @@ LibQuery is a lightweight CLI for querying sacred texts and literature from the 
 libquery bible john 3:16
 libquery quran 2:255
 libquery hindu bhagavadgita 7:18
-libquery talmud berakhot 2:1
+libquery talmud berakhot 2
 libquery mormon 1nephi 1:1-3
+libquery shakespeare hamlet 1:1
 ```
 
 ---
@@ -103,7 +104,7 @@ libquery download mormon 1nephi
 libquery bible genesis 1
 libquery bible john 3:16
 libquery quran 2:255
-libquery talmud berakhot 2:1
+libquery talmud berakhot 2
 libquery mormon 1nephi 1
 ```
 
@@ -142,7 +143,7 @@ libquery quran 2:1-3:10    # Surah 2:1 through Surah 3:10
 libquery <library> <book> [ref]
 ```
 
-Query a book, optionally scoped to a reference. Results are printed to stdout with `chapter:verse` prefixes.
+Query a book, optionally scoped to a reference. Results are printed to stdout with `chapter:verse`  or `act:scene` prefixes.
 
 ```bash
 libquery bible genesis 1:1
@@ -318,12 +319,12 @@ Both Arabic and English are returned for each verse with Arabic displayed first.
 
 ```bash
 libquery talmud berakhot
-libquery talmud berakhot 2:1
+libquery talmud berakhot 2:
 libquery talmud sanhedrin 4
-libquery talmud bava-kamma 1
+libquery talmud bava-kamma 2
 ```
 
-Chapter numbers correspond to daf (folio) numbers. Tractates with hyphens must be typed exactly.
+Chapter numbers correspond to daf (folio) numbers without verses.
 
 Both Hebrew and English are returned for each verse with Hebrew displayed first.
 
@@ -370,6 +371,20 @@ libquery mormon moroni 10
 ```
 
 ---
+### Shakespeare
+**37 plays** : English
+Each play is stored by plays with act as chapter and scene as verse. The full scene text is returned as one block.
+
+```bash
+libquery shakespeare hamlet              # Entire play
+libquery shakespeare hamlet 3            # Act 3 
+libquery shakespeare hamlet 3:1          # Act 3, Scene 1 
+libquery shakespeare macbeth 1:1         # Act 1, Scene 1
+libquery shakespeare romeo_juliet 2:2    # Act 2, Scene 2 
+libquery shakespeare lll 1              # Love's Labour's Lost Act 1
+```
+
+Chapter = act, verse = scene. Full scene dialogue is returned as a single block with each line prefixed by the speaker's name.
 
 ## Remote Server Usage
 

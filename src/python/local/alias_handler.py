@@ -69,11 +69,24 @@ def save(aliases: dict) -> None:
 
 
 
-def cmd_ls() -> str: #List all aliases
-    aliases = load()
-    if not aliases:
-        return "No aliases set."
-    return "\n".join(f"{k} -> {v}" for k, v in aliases.items())
+def cmd_ls() -> str:  # List all aliases
+    user_aliases = load()
+    lines = []
+
+    lines.append("---------- Hardcoded Aliases \n")
+    for k, v in sorted(HARDCODED_ALIASES.items()):
+        lines.append(f"{k} -> {v}")
+
+    lines.append("\n\n")
+    lines.append("---------- Your Aliases \n")
+
+    if user_aliases:
+        for k, v in sorted(user_aliases.items()):
+            lines.append(f"{k} -> {v}")
+    else:
+        lines.append("(none)")
+
+    return "\n".join(lines)
 
 
 def cmd_add(target: str, alias_name: str) -> str:

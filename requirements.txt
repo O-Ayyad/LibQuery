@@ -5,3 +5,4 @@ pyarrow>=14,<19
 pytest>=8,<9
 pytest-asyncio>=0.23,<1
 fsspec>=2024.1
+beautifulsoup4>=4.12

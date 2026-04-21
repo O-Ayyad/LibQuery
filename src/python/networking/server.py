@@ -22,7 +22,7 @@ import networking.registry as registry
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from config.settings import HOST, PORT, MAX_CONCURRENT_QUERIES
 from networking.router import handle
-from config.settings import ENV_PATH
+from config.settings import ENV_PATH, USE_HDFS
 
 _semaphore: asyncio.Semaphore | None = None
 
@@ -401,6 +401,16 @@ async def _run() -> None:
     print(f"LibQuery server listening on {addrs}")
     print(f"Max concurrent queries: {MAX_CONCURRENT_QUERIES}")
 
+    if not USE_HDFS:
+        print(
+            "\n\n\nYou are currently running LibQuery Server locally!\n"
+            "If you want to use HDFS:\n"
+            "  1. Read README.md for instructions on how to install Docker.\n"
+            "  2. Find and open the .env file in libquery/.env\n"
+            "  3. Set LIBQUERY_USE_HDFS=true\n"
+            "  4. In a terminal cd libquery and run 'docker compose up -d'\n"
+            "  5. Restart the server from CLI with 'libquery restart'\n\n\n"
+        )
     print(f"Server is ready and running!")
 
     async with server:
