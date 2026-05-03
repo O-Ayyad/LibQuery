@@ -129,7 +129,7 @@ static int send_and_print_impl(const char *payload, const char *library, int fla
     shutdown(s, SHUT_WR);
 #endif
  
-    char buf[65536];
+    char buf[262144];
     int  buf_len = 0;
  
     while ((n = recv(s, buf + buf_len, sizeof(buf) - buf_len - 1, 0)) > 0) {
@@ -142,8 +142,8 @@ static int send_and_print_impl(const char *payload, const char *library, int fla
         while ((newline = strchr(line_start, '\n')) != NULL) {
             *newline = '\0';
             int chapter, verse;
-            char text[4096];
-            if (sscanf(line_start, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
+            char text[262144];
+            if (sscanf(line_start, "%d:%d %262144[^\n]", &chapter, &verse, text) == 3)
                 print_verse(chapter, verse, text, library);
             else if (!quiet && *line_start != '\0')
                 printf("%s\n", line_start);
@@ -158,8 +158,8 @@ static int send_and_print_impl(const char *payload, const char *library, int fla
     if (!quiet && buf_len > 0) {
         buf[buf_len] = '\0';
         int chapter, verse;
-        char text[4096];
-        if (sscanf(buf, "%d:%d %4095[^\n]", &chapter, &verse, text) == 3)
+        char text[262144];
+        if (sscanf(buf, "%d:%d %262144[^\n]", &chapter, &verse, text) == 3)
             print_verse(chapter, verse, text, library);
         
         else

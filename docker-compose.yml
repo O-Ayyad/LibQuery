@@ -11,7 +11,7 @@ services:
       - HDFS_CONF_dfs_webhdfs_enabled=true
       - HDFS_CONF_dfs_replication=3
       - HDFS_CONF_dfs_permissions_enabled=false
-      - HDFS_CONF_dfs_blocksize=1048576
+      - HDFS_CONF_dfs_blocksize=8388608
     volumes:
       - namenode-data:/hadoop/dfs/name
 

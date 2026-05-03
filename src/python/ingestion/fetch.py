@@ -166,6 +166,7 @@ TALMUD_SEFARIA_REFS: dict[str, str] = {
     "meilah":"Meilah",
     "tamid":"Tamid",
     "niddah": "Niddah",
+    "gittin" : "Gittin"
 
 }
 

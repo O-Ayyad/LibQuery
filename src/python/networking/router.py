@@ -100,6 +100,9 @@ def handle(payload: dict, send: Callable[[str], None], ip: str, loop: asyncio.Ab
         case "query":
             from query.engine import execute
             try:
+                if payload.get("library", "").lower().strip() == "sample":
+                    from query.engine import execute_sample
+                    return _format_results(execute_sample(payload))
                 registry.scan_downloaded_books()
                 rows = execute(payload,ip)
                 return _format_results(rows)
@@ -121,7 +124,7 @@ def handle(payload: dict, send: Callable[[str], None], ip: str, loop: asyncio.Ab
             try:
                 saved = fetch(library, book, send)
                 if not saved:
-                    return f"[router] ERROR: nothing downloaded for {library}/{book or 'all'}\n Library or book may not exist"
+                    return f"[router] ERROR: nothing downloaded for {library}/{book or 'all'}\nLibrary or book may not exist or it is already downloaded (Use `libquery ls`)"
                 registry.scan_downloaded_books()
                 return f"OK: downloaded and ingested {library}/{book or 'all'}"
             except Exception as e:

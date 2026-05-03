@@ -86,6 +86,48 @@ https://hadoop.apache.org/releases.html
 
 **5. Add `libquery` to your PATH** so it can be run from any directory.
 
+### HDFS Setup (Optional)
+
+By default LibQuery stores Parquet files on local disk. You can switch to HDFS
+using Docker by editing the default .env file created upon hosting the server.
+
+LibQuery will use HDFS is LIBQUERY_USE_HDFS in .env is set to true. 
+
+**Requirements**
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with Hyper-V
+
+**1. Add to your hosts file** (`C:\Windows\System32\drivers\etc\hosts`, open as Administrator):
+```
+127.0.0.1 namenode
+127.0.0.1 datanode1
+127.0.0.1 datanode2
+127.0.0.1 datanode3
+```
+*2. Start the cluster:**
+```bash
+docker compose up -d
+```
+Verify it is running at http://localhost:9870
+
+**3. Start LibQuery normally:**
+```bash
+libquery host
+```
+
+To stop the cluster:
+```bash
+docker compose down
+```
+
+To wipe all data:
+```bash
+docker compose down -v
+```
+
+> **Note:** The Docker cluster must be running before starting the LibQuery server when `LIBQUERY_USE_HDFS=true`.
+> `docker compose up -d` must be executed before `libquery host`. 
+> LibQuery does not start Docker automatically.
+
 ---
 
 ## Quick Start
@@ -108,6 +150,18 @@ libquery talmud berakhot 2
 libquery mormon 1nephi 1
 ```
 
+## Sample Data
+
+A small sample dataset is bundled in `data/sample/` for testing without requiring a download.
+It contains two books (`book1`, `book2`) each with 5 verses the follow the same schema as real libraries.
+
+**Usage:**
+```bash
+libquery sample book1 1
+libquery sample book2 1:1-1:3
+```
+
+The sample works immediately after `libquery host` withnout needing a download.
 ---
 
 ## Reference Syntax
@@ -153,6 +207,7 @@ libquery talmud berakhot 2:1
 libquery hindu bhagavadgita 2
 libquery hindu ramayana-1 1:1
 libquery mormon 1nephi 3:7
+libquery shakespeare hamlet 1:2
 ```
 
 ---
@@ -401,7 +456,7 @@ libquery target 192.168.1.100    # Point to the server's IP
 libquery bible genesis 1         # Queries run on the remote server
 ```
 
-The server listens on port **9237**. Make sure this port is open on the server's firewall.
+The server listens on port **9237**. Make sure this port is open on the server's firewall and port forwarded if you want queries from outside your local network.
 
 Downloads initiated from a client machine run on the server. Data is stored and served from the server only.
 
@@ -527,47 +582,7 @@ Winutils is required for both local and HDFS. Install winutils here and place th
 
 https://github.com/cdarlint/winutils
 
-### HDFS Setup (Optional)
 
-By default LibQuery stores Parquet files on local disk. You can switch to HDFS
-using Docker by editing the default .env file created upon hosting the server.
-
-LibQuery will use HDFS is LIBQUERY_USE_HDFS in .env is set to true. 
-
-**Requirements**
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with Hyper-V
-
-**1. Add to your hosts file** (`C:\Windows\System32\drivers\etc\hosts`, open as Administrator):
-```
-127.0.0.1 namenode
-127.0.0.1 datanode1
-127.0.0.1 datanode2
-127.0.0.1 datanode3
-```
-*2. Start the cluster:**
-```bash
-docker compose up -d
-```
-Verify it is running at http://localhost:9870
-
-**3. Start LibQuery normally:**
-```bash
-libquery host
-```
-
-To stop the cluster:
-```bash
-docker compose down
-```
-
-To wipe all data:
-```bash
-docker compose down -v
-```
-
-> **Note:** The Docker cluster must be running before starting the LibQuery server when `LIBQUERY_USE_HDFS=true`.
-> `docker compose up -d` must be executed before `libquery host`. 
-> LibQuery does not start Docker automatically.
 
 ### Terminal and Unicode
 
@@ -580,4 +595,4 @@ CMD does not support right-to-left rendering or complex Unicode scripts. This ca
 
 ### Firewall
 
-If using LibQuery in a client/server setup across a network then ensure port **9237** is open on the server machine's firewall. For queries from external networks you need to portforward. I did not test this functionality and I'm not sure if it works properly.
+If using LibQuery in a client/server setup across a network then ensure port **9237** is open on the server machine's firewall. For queries from external networks you need to portforward.
