@@ -5,12 +5,12 @@ Thumbs.db
 venv/
 .venv/
 .vscode/
-data/*
+data/parquet
+data/raw
+data/serverdata
+data/userdata
 hadoop/bin/*
 
-!data/raw/.keep
-!data/processed/.keep
-!data/sample/**
 
 *.parquet
 *.orc
